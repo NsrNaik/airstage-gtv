@@ -111,4 +111,7 @@ Protocol logs: `adb shell setprop debug.airplaytv.verbose 1`, restart the app, `
 
 GPL-3.0 (see `LICENSE`), as required by UxPlay. Bundled third-party code: UxPlay `lib/` (GPL-3.0,
 including playfair GPL-3.0 and llhttp MIT), libplist 2.7 (LGPL-2.1), Apple ALAC decoder (Apache-2.0).
+The start/waiting-screen wallpaper (`res/drawable-nodpi/wallpaper.jpg`, a render of the black hole
+Gargantua) was supplied by the repo owner; it is not covered by the GPL. Check its licence before
+making the repository public, or replace it.
 OpenSSL 3.0 (Apache-2.0) is built locally by `scripts/build-openssl-android.sh` and linked statically.

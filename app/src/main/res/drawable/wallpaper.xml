@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Fallback background until a wallpaper image (drawable-nodpi/wallpaper.jpg) is added. -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <gradient android:type="radial" android:gradientRadius="1200dp" android:centerX="0.65" android:centerY="0.4"
-        android:startColor="#FF2A1C14" android:centerColor="#FF120D0B" android:endColor="#FF050506" />
-</shape>
