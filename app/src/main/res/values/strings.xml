@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AirPlay Receiver</string>
+    <string name="airplay_label">AirPlay</string>
+    <string name="waiting_title">AirPlay</string>
+</resources>

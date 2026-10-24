@@ -1,0 +1,1 @@
+UxPlay lib/ from https://github.com/FDH2/UxPlay commit 116e39069e40f09350a372233937a55c890a02f8 (v1.74), dns_sd/ and mdnsd/ backends removed; see ../dnssd_android.c

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AirPlay-style mark: a screen with a triangle under it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M5,3h14a3,3 0,0 1,3 3v9a3,3 0,0 1,-3 3h-1.6l-1.7,-2H19a1,1 0,0 0,1 -1V6a1,1 0,0 0,-1 -1H5A1,1 0,0 0,4 6v9a1,1 0,0 0,1 1h2.3l-1.7,2H5a3,3 0,0 1,-3 -3V6A3,3 0,0 1,5 3z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M12,13l6,8H6z" />
+</vector>

@@ -1,0 +1,231 @@
+package dev.airplaytv
+
+import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+import android.view.WindowManager
+import androidx.annotation.OptIn
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
+import androidx.media3.ui.PlayerView
+import java.net.HttpURLConnection
+import java.net.Inet4Address
+import java.net.URL
+import kotlin.concurrent.thread
+import kotlin.math.pow
+import okhttp3.Dns
+import okhttp3.OkHttpClient
+
+/**
+ * Full-screen player for AirPlay video handed over as a URL (the YouTube app's HLS stream,
+ * served by UxPlay at http://localhost:<port>/master.m3u8). The iPhone controls it through
+ * [VideoController]; the playback state is reported back for its /playback-info polls.
+ */
+@OptIn(UnstableApi::class)
+class VideoActivity : Activity(), VideoController.Target {
+
+    private lateinit var view: PlayerView
+    private var player: ExoPlayer? = null
+    private val main = Handler(Looper.getMainLooper())
+    private var finished = false
+    private var loadGeneration = 0
+
+    private val reporter = object : Runnable {
+        override fun run() {
+            report()
+            // The iPhone polls playback state while it is in control (every second, every 30 s after
+            // 15 minutes). If it stops (it gave up, moved to another receiver, or went out of range),
+            // close rather than leave a video playing that nothing can pause.
+            if (NativeBridge.nativeMsSincePlaybackPoll() > ORPHAN_TIMEOUT_MS) {
+                Log.i(TAG, "iPhone stopped polling: closing the video")
+                finish()
+                return
+            }
+            main.postDelayed(this, 500)
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        view = PlayerView(this).apply {
+            setBackgroundColor(0xff000000.toInt())
+            setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
+            controllerAutoShow = false
+        }
+        setContentView(view)
+        VideoController.target = this
+        load(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        load(intent)
+    }
+
+    private fun load(intent: Intent) {
+        val url = intent.getStringExtra(EXTRA_URL) ?: return finish()
+        val start = intent.getFloatExtra(EXTRA_START, 0f)
+        release()
+        finished = false
+        val generation = ++loadGeneration
+        Log.i(TAG, "Playing $url from ${start}s")
+        // UxPlay fetches the YouTube playlists from the iPhone after /play: wait until the master playlist is served.
+        thread(name = "playlist-wait") {
+            if (url.startsWith("http://localhost")) waitForPlaylist(url)
+            main.post { if (generation == loadGeneration && !isFinishing) startPlayer(url, start) }
+        }
+    }
+
+    private fun waitForPlaylist(url: String) {
+        repeat(40) {
+            try {
+                val c = URL(url).openConnection() as HttpURLConnection
+                c.connectTimeout = 1000
+                c.readTimeout = 2000
+                val ok = c.responseCode == 200 && c.inputStream.bufferedReader().readText().contains("#EXTM3U")
+                c.disconnect()
+                if (ok) return
+            } catch (_: Exception) {
+            }
+            Thread.sleep(250)
+        }
+    }
+
+    private fun startPlayer(url: String, startSeconds: Float) {
+        val item = MediaItem.Builder().setUri(Uri.parse(url)).apply {
+            if (url.contains(".m3u8")) setMimeType(MimeTypes.APPLICATION_M3U8)
+        }.build()
+        val http = OkHttpDataSource.Factory(ipv4FirstClient)
+        val sources = DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http))
+            .setLoadErrorHandlingPolicy(RetryPolicy())
+        val p = ExoPlayer.Builder(this).setMediaSourceFactory(sources).build()
+        p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+            .setPreferredVideoMimeType(MimeTypes.VIDEO_H264)
+            .build()
+        p.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_ENDED) {
+                    finished = true
+                    report()
+                    finish()
+                }
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                Log.e(TAG, "Playback failed", error)
+                finished = true
+                report()
+            }
+        })
+        p.setMediaItem(item, (startSeconds * 1000).toLong())
+        p.playWhenReady = true
+        p.prepare()
+        view.player = p
+        player = p
+        main.removeCallbacks(reporter)
+        main.post(reporter)
+    }
+
+    private fun report() {
+        val p = player
+        if (p == null) {
+            NativeBridge.nativeUpdatePlayback(0.0, 0.0, 0f, false, finished)
+            return
+        }
+        val duration = if (p.duration == C.TIME_UNSET) 0.0 else p.duration / 1000.0
+        // Like UxPlay's own player: report the requested rate and "ready", so the iPhone does not
+        // read initial buffering as a stall and give up.
+        NativeBridge.nativeUpdatePlayback(
+            duration,
+            p.currentPosition / 1000.0,
+            if (p.playWhenReady) 1f else 0f,
+            true,
+            finished
+        )
+    }
+
+    override fun seek(seconds: Float) {
+        player?.seekTo((seconds * 1000).toLong())
+    }
+
+    override fun rate(rate: Float) {
+        player?.playWhenReady = rate > 0f
+    }
+
+    override fun setVolume(db: Float) {
+        val frac = if (db <= -30f) 0f else ((30f + db) / 30f).coerceIn(0f, 1f)
+        player?.volume = if (frac == 0f) 0f else 10f.pow(-30f * (1f - frac) / 20f)
+    }
+
+    override fun close() {
+        finish()
+    }
+
+    private fun release() {
+        main.removeCallbacks(reporter)
+        view.player = null
+        player?.release()
+        player = null
+    }
+
+    override fun onDestroy() {
+        // Tell the iPhone playback is over, so it stops showing the video as playing on the TV.
+        finished = true
+        report()
+        release()
+        if (VideoController.target === this) VideoController.target = null
+        super.onDestroy()
+    }
+
+    /** UxPlay may still be fetching media playlists from the iPhone: keep retrying for a while. */
+    private class RetryPolicy : DefaultLoadErrorHandlingPolicy() {
+        override fun getRetryDelayMsFor(info: LoadErrorHandlingPolicy.LoadErrorInfo): Long =
+            if (info.errorCount <= 10) 500 else C.TIME_UNSET
+
+        override fun getMinimumLoadableRetryCount(dataType: Int) = 10
+    }
+
+    companion object {
+        private const val TAG = "VideoActivity"
+
+        /**
+         * Tries IPv4 addresses first. Home networks often hand out IPv6 addresses (e.g. fd00::/8)
+         * with no IPv6 route to the internet; plain HttpURLConnection then waits out the full
+         * connect timeout on YouTube's IPv6 address before anything plays.
+         */
+        private val ipv4FirstClient = OkHttpClient.Builder()
+            .dns(object : Dns {
+                override fun lookup(hostname: String) =
+                    Dns.SYSTEM.lookup(hostname).sortedBy { if (it is Inet4Address) 0 else 1 }
+            })
+            // UxPlay's local playlist server answers one request per connection: don't reuse them.
+            .addInterceptor { chain ->
+                val request = chain.request()
+                if (request.url.host == "localhost") {
+                    chain.proceed(request.newBuilder().header("Connection", "close").build())
+                } else {
+                    chain.proceed(request)
+                }
+            }
+            .build()
+
+        private const val ORPHAN_TIMEOUT_MS = 75_000L
+        const val EXTRA_URL = "url"
+        const val EXTRA_START = "start"
+    }
+}

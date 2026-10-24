@@ -1,0 +1,9 @@
+.gradle/
+build/
+app/build/
+app/.cxx/
+local.properties
+*.iml
+.idea/
+# Built by scripts/build-openssl-android.sh
+third_party/openssl/
