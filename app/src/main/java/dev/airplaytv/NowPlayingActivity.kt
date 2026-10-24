@@ -1,6 +1,7 @@
 package dev.airplaytv
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.graphics.Bitmap
 import android.graphics.Outline
 import android.os.Bundle
@@ -80,18 +81,29 @@ class NowPlayingActivity : Activity() {
     }
 
     private fun render() {
-        if (!NowPlaying.active && !NowPlaying.connected) {
+        if (idle()) {
             // The iPhone disconnected (or switched to another receiver).
-            main.postDelayed({ if (!NowPlaying.active && !NowPlaying.connected) finish() }, 1500)
+            main.postDelayed({ if (idle()) finish() }, 1500)
         }
         val tv = AirPlayService.deviceName(this)
         val header = NowPlaying.clientName.takeIf { it.isNotEmpty() }?.let { "$it  →  $tv" } ?: tv
         setIfChanged(source, header)
+        NowPlaying.pin?.let { pin ->
+            setIfChanged(source, tv)
+            setIfChanged(title, pin.toCharArray().joinToString("  "))
+            setIfChanged(artist, getString(R.string.pin_hint))
+            setIfChanged(album, getString(R.string.pin_once))
+            showCover(null, R.drawable.ic_airplay)
+            showWallpaper()
+            renderProgress()
+            return
+        }
         if (!NowPlaying.active) {
             setIfChanged(title, getString(R.string.connected_title))
             setIfChanged(artist, getString(R.string.waiting_for_media) + animatedEllipsis())
             setIfChanged(album, getString(R.string.waiting_hint))
             showCover(null, R.drawable.ic_airplay)
+            showWallpaper()
             renderProgress()
             return
         }
@@ -116,6 +128,27 @@ class NowPlayingActivity : Activity() {
             cover.scaleType = ImageView.ScaleType.CENTER
             backdrop.setImageDrawable(null)
         }
+    }
+
+    private fun idle() = !NowPlaying.active && !NowPlaying.connected && NowPlaying.pin == null
+
+    /** Waiting and PIN states have no cover art: show the wallpaper behind them instead. */
+    private fun showWallpaper() {
+        if (backdrop.drawable == null) backdrop.setImageResource(R.drawable.wallpaper)
+    }
+
+    @Deprecated("Back is handled with a dialog; onBackPressedDispatcher needs AndroidX.")
+    override fun onBackPressed() {
+        val who = NowPlaying.clientName.ifEmpty { "your device" }
+        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle(getString(R.string.back_title, who))
+            .setMessage(R.string.back_message)
+            .setPositiveButton(R.string.back_continue) { _, _ -> finish() }
+            .setNegativeButton(R.string.back_stop) { _, _ ->
+                AirPlayService.instance?.disconnect()
+                finish()
+            }
+            .show()
     }
 
     /** Re-setting identical text would restart a running scroll from the beginning. */

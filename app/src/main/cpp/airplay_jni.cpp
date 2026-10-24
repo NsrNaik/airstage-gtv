@@ -38,6 +38,9 @@ extern "C" {
 #define CT_AAC_LC 4
 #define CT_AAC_ELD 8
 
+/* Senders buffer ~2 s ahead; a larger computed delay means the clocks disagree. */
+#define MAX_AUDIO_DELAY_NS 4000000000LL
+
 /* Same as the reset types in raop.h, mirrored in NativeBridge.kt. */
 
 static JavaVM *g_vm = nullptr;
@@ -70,6 +73,7 @@ static struct {
     jmethodID registerService, unregisterService;
     jmethodID audioFormat, audioPcm, audioAac, audioFlush, volume;
     jmethodID coverArt, metadata, progress, connections, client;
+    jmethodID pin, registerClient, checkRegister, dacp, audioStopped;
     jmethodID videoPlay, videoScrub, videoRate, videoStop, videoReset, connReset;
 } m;
 
@@ -203,9 +207,17 @@ static void cb_audio_process(void *, raop_ntp_t *, audio_decode_struct *data) {
                 return;
             }
         }
+        /* When the sender wants this packet heard, as a delay from now (0: play at once). UxPlay's
+           NTP clock sync with the iPhone does not complete here (ntp_time_local stays 0), so fall back
+           to the sender's own timestamp: phone and TV both keep internet time, and it is ~1.8 s ahead. */
+        uint64_t due = data->ntp_time_local ? data->ntp_time_local : data->ntp_time_remote;
+        int64_t delay_ns = due ? (int64_t) due - (int64_t) get_local_time() : 0;
+        if (delay_ns < 0 || delay_ns > MAX_AUDIO_DELAY_NS) {
+            delay_ns = 0; /* clocks disagree: don't trust it */
+        }
         jshortArray a = e->NewShortArray((jsize) frames * 2);
         e->SetShortArrayRegion(a, 0, (jsize) frames * 2, pcm);
-        e->CallStaticVoidMethod(g_bridge, m.audioPcm, a);
+        e->CallStaticVoidMethod(g_bridge, m.audioPcm, a, (jlong) delay_ns, (jlong) data->rtp_time);
         check(e);
         e->DeleteLocalRef(a);
     } else {
@@ -252,7 +264,12 @@ static void cb_audio_set_coverart(void *, const void *buffer, int buflen) {
     e->DeleteLocalRef(a);
 }
 
-static void cb_audio_stop_coverart_rendering(void *) {}
+/* The client tore down the audio stream (iOS does this on pause): the track is not playing. */
+static void cb_audio_stop_coverart_rendering(void *) {
+    JNIEnv *e = env();
+    e->CallStaticVoidMethod(g_bridge, m.audioStopped);
+    check(e);
+}
 
 static void cb_audio_set_progress(void *, uint32_t *start, uint32_t *curr, uint32_t *end) {
     JNIEnv *e = env();
@@ -285,16 +302,52 @@ static int cb_video_set_codec_and_size(void *, video_codec_t, unsigned short, un
     return 0;
 }
 
-static void cb_display_pin(void *, char *pin) {}
-static void cb_register_client(void *, const char *, const char *, const char *) {}
-static bool cb_check_register(void *, const char *) { return true; }
+static void cb_display_pin(void *, char *pin) {
+    JNIEnv *e = env();
+    jstring p = e->NewStringUTF(pin);
+    e->CallStaticVoidMethod(g_bridge, m.pin, p);
+    check(e);
+    e->DeleteLocalRef(p);
+}
+
+/* A device finished PIN pairing: remember its public key so it is not asked again. */
+static void cb_register_client(void *, const char *device_id, const char *pk, const char *name) {
+    JNIEnv *e = env();
+    jstring d = e->NewStringUTF(device_id), k = e->NewStringUTF(pk), n = e->NewStringUTF(name);
+    e->CallStaticVoidMethod(g_bridge, m.registerClient, d, k, n);
+    check(e);
+    e->DeleteLocalRef(d);
+    e->DeleteLocalRef(k);
+    e->DeleteLocalRef(n);
+}
+
+/* A returning device: false makes it pair with a PIN again. */
+static bool cb_check_register(void *, const char *pk) {
+    JNIEnv *e = env();
+    jstring k = e->NewStringUTF(pk);
+    jboolean known = e->CallStaticBooleanMethod(g_bridge, m.checkRegister, k);
+    check(e);
+    e->DeleteLocalRef(k);
+    return known;
+}
 
 static const char *cb_passwd(void *, int *len) {
     *len = 0;
     return nullptr;
 }
 
-static void cb_export_dacp(void *, const char *, const char *) {}
+/* The iPhone's remote-control identity (DACP), used to send it "pause". */
+static void cb_export_dacp(void *, const char *active_remote, const char *dacp_id) {
+    if (!active_remote || !dacp_id) {
+        return;
+    }
+    JNIEnv *e = env();
+    jstring a = e->NewStringUTF(active_remote), d = e->NewStringUTF(dacp_id);
+    e->CallStaticVoidMethod(g_bridge, m.dacp, a, d);
+    check(e);
+    e->DeleteLocalRef(a);
+    e->DeleteLocalRef(d);
+}
 
 static void cb_video_reset(void *, reset_type_t type) {
     LOGI("video_reset type %d", (int) type);
@@ -398,7 +451,7 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *) {
                                              "(Ljava/lang/String;Ljava/lang/String;I[Ljava/lang/String;[Ljava/lang/String;)V");
     m.unregisterService = e->GetStaticMethodID(c, "onUnregisterService", "(Ljava/lang/String;)V");
     m.audioFormat = e->GetStaticMethodID(c, "onAudioFormat", "(II)V");
-    m.audioPcm = e->GetStaticMethodID(c, "onAudioPcm", "([S)V");
+    m.audioPcm = e->GetStaticMethodID(c, "onAudioPcm", "([SJJ)V");
     m.audioAac = e->GetStaticMethodID(c, "onAudioAac", "([B)V");
     m.audioFlush = e->GetStaticMethodID(c, "onAudioFlush", "()V");
     m.volume = e->GetStaticMethodID(c, "onVolume", "(F)V");
@@ -407,6 +460,11 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *) {
     m.progress = e->GetStaticMethodID(c, "onProgress", "(JJJ)V");
     m.connections = e->GetStaticMethodID(c, "onConnections", "(I)V");
     m.client = e->GetStaticMethodID(c, "onClient", "(Ljava/lang/String;Ljava/lang/String;)V");
+    m.pin = e->GetStaticMethodID(c, "onPin", "(Ljava/lang/String;)V");
+    m.registerClient = e->GetStaticMethodID(c, "onRegisterClient", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
+    m.checkRegister = e->GetStaticMethodID(c, "onCheckRegister", "(Ljava/lang/String;)Z");
+    m.dacp = e->GetStaticMethodID(c, "onDacp", "(Ljava/lang/String;Ljava/lang/String;)V");
+    m.audioStopped = e->GetStaticMethodID(c, "onAudioStopped", "()V");
     m.videoPlay = e->GetStaticMethodID(c, "onVideoPlay", "(Ljava/lang/String;F)V");
     m.videoScrub = e->GetStaticMethodID(c, "onVideoScrub", "(F)V");
     m.videoRate = e->GetStaticMethodID(c, "onVideoRate", "(F)V");
@@ -419,7 +477,7 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *) {
 /* Starts the AirPlay server and announces it. Returns the TCP port, or a negative error. */
 extern "C" JNIEXPORT jint JNICALL
 Java_dev_airplaytv_NativeBridge_nativeStart(JNIEnv *e, jobject, jstring jname, jbyteArray jhw,
-                                            jstring jkeyfile, jstring jlang) {
+                                            jstring jkeyfile, jstring jlang, jboolean require_pin) {
     if (g_raop) {
         return raop_get_port(g_raop);
     }
@@ -437,7 +495,8 @@ Java_dev_airplaytv_NativeBridge_nativeStart(JNIEnv *e, jobject, jstring jname, j
     int ret = -1;
     int err = 0;
     ntp_global_init();
-    g_dnssd = dnssd_init(name, (int) strlen(name), hw, 6, 0, &err);
+    /* pin_pw 1: a new device must enter a 4-digit PIN shown on the TV (once; the key is then remembered). */
+    g_dnssd = dnssd_init(name, (int) strlen(name), hw, 6, require_pin ? 1 : 0, &err);
     if (err) {
         LOGE("dnssd_init failed: %d", err);
         goto done;
@@ -451,6 +510,8 @@ Java_dev_airplaytv_NativeBridge_nativeStart(JNIEnv *e, jobject, jstring jname, j
         for (int bit : on) {
             dnssd_set_airplay_features(g_dnssd, bit, 1);
         }
+        /* Bit 27, legacy pairing: needed for PIN pairing (as uxplay -pin sets it). */
+        dnssd_set_airplay_features(g_dnssd, 27, require_pin ? 1 : 0);
     }
 
     raop_callbacks_t cbs;
@@ -507,6 +568,9 @@ Java_dev_airplaytv_NativeBridge_nativeStart(JNIEnv *e, jobject, jstring jname, j
         goto done;
     }
     raop_set_plist(g_raop, "hls", 1);
+    if (require_pin) {
+        raop_set_plist(g_raop, "pin", 0); /* 0: a random PIN each time */
+    }
     {
         unsigned short tcp[3] = {7000, 7001, 7100};
         unsigned short udp[3] = {6000, 6001, 7011};
@@ -579,4 +643,12 @@ extern "C" JNIEXPORT jlong JNICALL
 Java_dev_airplaytv_NativeBridge_nativeMsSincePlaybackPoll(JNIEnv *, jobject) {
     std::lock_guard<std::mutex> lock(g_playback_lock);
     return (jlong) (now_ms() - g_last_info_poll_ms);
+}
+
+/* Drops the connected iPhone (it falls back to its own speaker). */
+extern "C" JNIEXPORT void JNICALL
+Java_dev_airplaytv_NativeBridge_nativeDisconnect(JNIEnv *, jobject) {
+    if (g_raop) {
+        raop_remove_known_connections(g_raop);
+    }
 }

@@ -7,5 +7,11 @@
     <string name="waiting_for_media">Waiting for audio or video to be played</string>
     <string name="waiting_hint">Play something on your iPhone</string>
     <string name="starting_stream">Starting the stream, give it a moment</string>
+    <string name="pin_hint">Enter this code on your device to connect</string>
+    <string name="pin_once">You only need to do this once per device</string>
+    <string name="back_title">AirPlay from %1$s</string>
+    <string name="back_continue">Continue in background</string>
+    <string name="back_stop">Stop &amp; disconnect</string>
+    <string name="back_message">In the background, AirPlay pauses by itself when something else plays on the TV.</string>
     <string name="stream_failed">Couldn\'t start the stream</string>
 </resources>

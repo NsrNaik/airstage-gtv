@@ -7,6 +7,8 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
@@ -34,6 +36,21 @@ class AirPlayService : Service(), NativeBridge.Listener {
     private val registrations = mutableMapOf<String, NsdManager.RegistrationListener>()
     private val audio = AudioOutput()
     private var openConnections = 0
+    private lateinit var paired: PairedDevices
+    private lateinit var dacp: DacpRemote
+    private lateinit var audioManager: AudioManager
+    private var focusRequest: AudioFocusRequest? = null
+
+    // Set when another app took the TV's audio: our output is muted and the iPhone was asked to
+    // pause. Playback resumes when the iPhone starts sending again after the pause's flush.
+    @Volatile private var pausedForOtherMedia = false
+    @Volatile private var flushedSincePause = false
+
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        when (change) {
+            AudioManager.AUDIOFOCUS_LOSS, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> pauseForOtherMedia()
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -41,6 +58,10 @@ class AirPlayService : Service(), NativeBridge.Listener {
         super.onCreate()
         startInForeground()
         nsd = getSystemService(NsdManager::class.java)
+        paired = PairedDevices(this)
+        dacp = DacpRemote(nsd)
+        audioManager = getSystemService(AudioManager::class.java)
+        instance = this
         multicastLock = getSystemService(WifiManager::class.java)
             .createMulticastLock("airplay-tv").apply { setReferenceCounted(false); acquire() }
         worker = Handler(HandlerThread("airplay-control").apply { start() }.looper)
@@ -49,7 +70,9 @@ class AirPlayService : Service(), NativeBridge.Listener {
         val name = airPlayName(this)
         worker.post {
             val keyFile = File(filesDir, "airplay-key.pem").absolutePath
-            val port = NativeBridge.nativeStart(name, hardwareAddress(), keyFile, Locale.getDefault().toLanguageTag())
+            val port = NativeBridge.nativeStart(
+                name, hardwareAddress(), keyFile, Locale.getDefault().toLanguageTag(), requirePin(this)
+            )
             Log.i(TAG, "AirPlay server \"$name\" started on port $port")
             status = if (port > 0) "Ready: \"$name\" (port $port)" else "Failed to start the AirPlay server"
         }
@@ -58,6 +81,8 @@ class AirPlayService : Service(), NativeBridge.Listener {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
 
     override fun onDestroy() {
+        if (instance === this) instance = null
+        abandonFocus()
         NativeBridge.listener = null
         worker.post { NativeBridge.nativeStop() }
         worker.looper.quitSafely()
@@ -85,7 +110,7 @@ class AirPlayService : Service(), NativeBridge.Listener {
 
     /** A random, locally administered MAC, kept so the iPhone sees the same receiver every time. */
     private fun hardwareAddress(): ByteArray {
-        val prefs = getSharedPreferences("airplay", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs.getString("hwaddr", null)?.let { hex ->
             return ByteArray(6) { hex.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
         }
@@ -135,16 +160,85 @@ class AirPlayService : Service(), NativeBridge.Listener {
 
     override fun audioFormat(ct: Int, spf: Int) {
         audio.start(ct)
+        requestFocus()
         NowPlaying.setActive(true)
         main.post { show(NowPlayingActivity::class.java, null) }
     }
 
-    override fun audioPcm(pcm: ShortArray) = audio.pcm(pcm)
-    override fun audioAac(frame: ByteArray) = audio.aacFrame(frame)
+    override fun audioPcm(pcm: ShortArray, delayNs: Long, rtpTime: Long) {
+        if (resumeIfAllowed()) audio.pcm(pcm, delayNs, rtpTime)
+    }
+
+    override fun audioAac(frame: ByteArray) {
+        if (resumeIfAllowed()) audio.aacFrame(frame)
+    }
+
+    /** False while paused for other media; true again once the iPhone resumes after the pause. */
+    private fun resumeIfAllowed(): Boolean {
+        if (!pausedForOtherMedia) return true
+        if (!flushedSincePause) return false
+        // The iPhone paused (flush) and is now sending again: the user pressed play.
+        pausedForOtherMedia = false
+        requestFocus()
+        return true
+    }
 
     override fun audioFlush() {
         audio.flush()
+        if (pausedForOtherMedia) flushedSincePause = true
         NowPlaying.setPaused(true)
+    }
+
+    /** iOS tears the audio stream down on pause (and sets it up again on play). */
+    override fun audioStopped() {
+        audio.flush()
+        if (pausedForOtherMedia) flushedSincePause = true
+        NowPlaying.setPaused(true)
+    }
+
+    /** Another app (YouTube, Netflix…) started playing on the TV: go quiet and pause the iPhone. */
+    private fun pauseForOtherMedia() {
+        if (!NowPlaying.active || pausedForOtherMedia) return
+        Log.i(TAG, "Audio focus lost: pausing AirPlay and the iPhone")
+        pausedForOtherMedia = true
+        flushedSincePause = false
+        audio.flush()
+        NowPlaying.setPaused(true)
+        dacp.pause()
+    }
+
+    private fun requestFocus() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val request = focusRequest ?: AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(AudioOutput.ATTRIBUTES)
+                .setOnAudioFocusChangeListener(focusListener, main)
+                .build()
+                .also { focusRequest = it }
+            audioManager.requestAudioFocus(request)
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.requestAudioFocus(focusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+        }
+    }
+
+    private fun abandonFocus() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(focusListener)
+        }
+        pausedForOtherMedia = false
+    }
+
+    /** "Stop & disconnect" from the TV: drop the iPhone, which falls back to its own speaker. */
+    fun disconnect() {
+        Log.i(TAG, "Disconnecting the AirPlay client")
+        worker.post { NativeBridge.nativeDisconnect() }
+        audio.stop()
+        abandonFocus()
+        dacp.clear()
+        NowPlaying.clear()
     }
 
     override fun volume(db: Float) {
@@ -157,6 +251,22 @@ class AirPlayService : Service(), NativeBridge.Listener {
         // Show who connected straight away, unless a video is already on screen.
         main.post { if (VideoController.target == null) show(NowPlayingActivity::class.java, null) }
     }
+
+    override fun showPin(pin: String) {
+        NowPlaying.setPin(pin)
+        main.post { show(NowPlayingActivity::class.java, null) }
+    }
+
+    override fun registerClient(deviceId: String, publicKey: String, name: String) {
+        Log.i(TAG, "Paired with $name")
+        paired.add(publicKey, name)
+        NowPlaying.setPin(null)
+    }
+
+    override fun isRegistered(publicKey: String) = paired.contains(publicKey)
+
+    override fun remoteControl(activeRemote: String, dacpId: String) = dacp.setSession(activeRemote, dacpId)
+
     override fun coverArt(jpeg: ByteArray) = NowPlaying.setCover(jpeg)
     override fun metadata(dmap: ByteArray) = NowPlaying.setMetadata(dmap)
     override fun progress(start: Long, current: Long, end: Long) = NowPlaying.setProgress(start, current, end)
@@ -169,6 +279,8 @@ class AirPlayService : Service(), NativeBridge.Listener {
         openConnections = maxOf(0, openConnections + delta)
         if (openConnections == 0) {
             audio.stop()
+            abandonFocus()
+            dacp.clear()
             NowPlaying.clear()
         }
     }
@@ -222,6 +334,29 @@ class AirPlayService : Service(), NativeBridge.Listener {
         @Volatile
         var status = "Starting…"
             private set
+
+        /** The running service, for the TV screens' "Stop & disconnect". */
+        @Volatile
+        var instance: AirPlayService? = null
+            private set
+
+        private const val PREFS = "airplay"
+        private const val KEY_REQUIRE_PIN = "require_pin"
+
+        /** New devices must enter a PIN shown on the TV (once each). On by default. */
+        fun requirePin(context: Context) =
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_REQUIRE_PIN, true)
+
+        fun setRequirePin(context: Context, on: Boolean) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_REQUIRE_PIN, on).apply()
+            restart(context)
+        }
+
+        /** Restarts the receiver so a changed setting takes effect (drops any connected device). */
+        fun restart(context: Context) {
+            context.stopService(Intent(context, AirPlayService::class.java))
+            Handler(Looper.getMainLooper()).postDelayed({ start(context) }, 1000)
+        }
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, AirPlayService::class.java))

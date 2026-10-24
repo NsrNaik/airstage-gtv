@@ -1,6 +1,7 @@
 package dev.airplaytv
 
 import android.media.AudioAttributes
+import android.media.AudioTimestamp
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.media.MediaCodec
@@ -10,6 +11,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.log2
 import kotlin.math.pow
 
@@ -17,10 +19,18 @@ import kotlin.math.pow
  * Plays AirPlay audio: 44.1 kHz stereo 16-bit PCM (ALAC is decoded natively) or AAC frames
  * (decoded with MediaCodec). Packets are queued and written to an AudioTrack on a writer thread
  * so UxPlay's network thread never blocks on audio output.
+ *
+ * The sender stamps each packet with when it should be heard (about 2 s after it is sent); the
+ * writer holds packets until then, so the TV stays in step with the iPhone's clock and lyrics.
  */
 class AudioOutput {
 
-    private val queue = ArrayBlockingQueue<ShortArray>(QUEUE_PACKETS)
+    /** [dueNanos]: System.nanoTime() when it should be heard, 0 for "as soon as possible". */
+    private class Packet(val samples: ShortArray, val dueNanos: Long, val rtpTime: Long)
+
+    private val queue = ArrayBlockingQueue<Packet>(QUEUE_PACKETS)
+    private val framesWritten = AtomicLong()
+    private val timestamp = AudioTimestamp()
     private var track: AudioTrack? = null
     private var writer: Thread? = null
     @Volatile private var running = false
@@ -36,12 +46,7 @@ class AudioOutput {
         if (running) return
         val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
         val t = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build()
-            )
+            .setAudioAttributes(ATTRIBUTES)
             .setAudioFormat(
                 AudioFormat.Builder()
                     .setSampleRate(RATE)
@@ -71,15 +76,19 @@ class AudioOutput {
             release()
         }
         track = null
+        framesWritten.set(0)
         stopAac()
     }
 
-    fun pcm(samples: ShortArray) {
+    fun pcm(samples: ShortArray, delayNs: Long = 0, rtpTime: Long = -1) {
         if (!running) return
-        if (!queue.offer(samples)) {
+        val due = if (delayNs > 0) System.nanoTime() + delayNs else 0L
+        if (delayNs > 0) NowPlaying.senderLeadMs = delayNs / 1_000_000
+        val packet = Packet(samples, due, rtpTime)
+        if (!queue.offer(packet)) {
             // The writer has fallen behind: drop the oldest packet rather than build up delay.
             queue.poll()
-            queue.offer(samples)
+            queue.offer(packet)
         }
     }
 
@@ -88,6 +97,7 @@ class AudioOutput {
         track?.run {
             pause()
             flush()
+            framesWritten.set(0)
             play()
         }
     }
@@ -153,22 +163,57 @@ class AudioOutput {
 
     private fun writeLoop(t: AudioTrack) {
         while (running) {
-            val samples = try {
+            val packet = try {
                 queue.poll(200, TimeUnit.MILLISECONDS) ?: continue
             } catch (_: InterruptedException) {
                 break
             }
-            t.write(samples, 0, samples.size)
+            var heardAt = nextFrameNanos(t)
+            if (packet.dueNanos > 0) {
+                val wait = packet.dueNanos - heardAt
+                if (wait < -LATE_NS) continue // far behind (e.g. after a stall): skip to catch up
+                if (wait > 1_000_000) {
+                    try {
+                        Thread.sleep(wait / 1_000_000, (wait % 1_000_000).toInt())
+                    } catch (_: InterruptedException) {
+                        break
+                    }
+                    heardAt = packet.dueNanos
+                }
+            }
+            val n = t.write(packet.samples, 0, packet.samples.size)
+            if (n > 0) framesWritten.addAndGet((n / 2).toLong())
+            if (packet.rtpTime >= 0) NowPlaying.heard(packet.rtpTime, heardAt)
         }
+    }
+
+    /** When a frame written now would be heard: from the track's timestamp, or an estimate. */
+    private fun nextFrameNanos(t: AudioTrack): Long {
+        val now = System.nanoTime()
+        val written = framesWritten.get()
+        val estimate = if (t.getTimestamp(timestamp)) {
+            timestamp.nanoTime + (written - timestamp.framePosition) * 1_000_000_000L / RATE
+        } else {
+            now + maxOf(0L, written - t.playbackHeadPosition.toLong()) * 1_000_000_000L / RATE + HW_LATENCY_NS
+        }
+        // After an underrun the timestamp is stale: nothing can be heard sooner than the hardware allows.
+        return maxOf(estimate, now + HW_LATENCY_NS)
     }
 
     companion object {
         private const val TAG = "AudioOutput"
+        val ATTRIBUTES: AudioAttributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+            .build()
         const val RATE = 44100
         const val CT_ALAC = 2
         const val CT_AAC_LC = 4
         const val CT_AAC_ELD = 8
-        // ALAC packets are 352 frames (8 ms): 400 packets is ~3 s, enough to absorb network jitter.
-        private const val QUEUE_PACKETS = 400
+        // ALAC packets are 352 frames (8 ms): 600 packets is ~4.8 s, room for the ~2 s the sender
+        // sends ahead plus network jitter.
+        private const val QUEUE_PACKETS = 600
+        private const val HW_LATENCY_NS = 40_000_000L
+        private const val LATE_NS = 200_000_000L
     }
 }

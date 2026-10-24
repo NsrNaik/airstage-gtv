@@ -16,15 +16,21 @@ object NativeBridge {
         fun registerService(type: String, name: String, port: Int, txt: Map<String, String>)
         fun unregisterService(type: String)
         fun audioFormat(ct: Int, spf: Int)
-        fun audioPcm(pcm: ShortArray)
+        /** [delayNs]: when the sender wants it heard, from now (0 = at once); [rtpTime]: its RTP timestamp. */
+        fun audioPcm(pcm: ShortArray, delayNs: Long, rtpTime: Long)
         fun audioAac(frame: ByteArray)
         fun audioFlush()
+        fun audioStopped()
         fun volume(db: Float)
         fun coverArt(jpeg: ByteArray)
         fun metadata(dmap: ByteArray)
         fun progress(start: Long, current: Long, end: Long)
         fun connections(delta: Int)
         fun client(name: String, model: String)
+        fun showPin(pin: String)
+        fun registerClient(deviceId: String, publicKey: String, name: String)
+        fun isRegistered(publicKey: String): Boolean
+        fun remoteControl(activeRemote: String, dacpId: String)
         fun videoPlay(url: String, startSeconds: Float)
         fun videoScrub(seconds: Float)
         fun videoRate(rate: Float)
@@ -40,7 +46,8 @@ object NativeBridge {
         System.loadLibrary("airplaytv")
     }
 
-    external fun nativeStart(name: String, hwAddr: ByteArray, keyFile: String, lang: String): Int
+    external fun nativeStart(name: String, hwAddr: ByteArray, keyFile: String, lang: String, requirePin: Boolean): Int
+    external fun nativeDisconnect()
     external fun nativeStop()
     external fun nativeRestartHttpd()
     /** Milliseconds since the iPhone last polled the video's playback state. */
@@ -54,15 +61,22 @@ object NativeBridge {
 
     @JvmStatic fun onUnregisterService(type: String) { listener?.unregisterService(type) }
     @JvmStatic fun onAudioFormat(ct: Int, spf: Int) { listener?.audioFormat(ct, spf) }
-    @JvmStatic fun onAudioPcm(pcm: ShortArray) { listener?.audioPcm(pcm) }
+    @JvmStatic fun onAudioPcm(pcm: ShortArray, delayNs: Long, rtpTime: Long) { listener?.audioPcm(pcm, delayNs, rtpTime) }
     @JvmStatic fun onAudioAac(frame: ByteArray) { listener?.audioAac(frame) }
     @JvmStatic fun onAudioFlush() { listener?.audioFlush() }
+    @JvmStatic fun onAudioStopped() { listener?.audioStopped() }
     @JvmStatic fun onVolume(db: Float) { listener?.volume(db) }
     @JvmStatic fun onCoverArt(jpeg: ByteArray) { listener?.coverArt(jpeg) }
     @JvmStatic fun onMetadata(dmap: ByteArray) { listener?.metadata(dmap) }
     @JvmStatic fun onProgress(start: Long, current: Long, end: Long) { listener?.progress(start, current, end) }
     @JvmStatic fun onConnections(delta: Int) { listener?.connections(delta) }
     @JvmStatic fun onClient(name: String, model: String) { listener?.client(name, model) }
+    @JvmStatic fun onPin(pin: String) { listener?.showPin(pin) }
+    @JvmStatic fun onRegisterClient(deviceId: String, publicKey: String, name: String) {
+        listener?.registerClient(deviceId, publicKey, name)
+    }
+    @JvmStatic fun onCheckRegister(publicKey: String): Boolean = listener?.isRegistered(publicKey) ?: false
+    @JvmStatic fun onDacp(activeRemote: String, dacpId: String) { listener?.remoteControl(activeRemote, dacpId) }
     @JvmStatic fun onVideoPlay(url: String, startSeconds: Float) { listener?.videoPlay(url, startSeconds) }
     @JvmStatic fun onVideoScrub(seconds: Float) { listener?.videoScrub(seconds) }
     @JvmStatic fun onVideoRate(rate: Float) { listener?.videoRate(rate) }

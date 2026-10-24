@@ -22,6 +22,14 @@ object NowPlaying {
         private set
     private var positionMs = 0L
     private var positionAt = 0L
+    private var startRtp = -1L
+
+    /** How far ahead of playback the sender streams (~1.8 s); its progress reports are that far ahead. */
+    @Volatile var senderLeadMs = 0L
+
+    // The RTP timestamp of the packet being heard, and when (System.nanoTime), from the audio writer.
+    @Volatile private var heardRtp = -1L
+    @Volatile private var heardAtNanos = 0L
     var paused = false
         private set
     /** Name of the sending device, e.g. "Alex's iPhone". */
@@ -30,20 +38,45 @@ object NowPlaying {
     /** True while an iPhone is connected, before or during playback. */
     var connected = false
         private set
+    /** PIN to show while a new device pairs, else null. */
+    var pin: String? = null
+        private set
     /** True while an AirPlay audio session is open. */
     var active = false
         private set
 
     private val main = Handler(Looper.getMainLooper())
+    private const val PIN_TIMEOUT_MS = 120_000L
     private val observers = mutableListOf<() -> Unit>()
 
     fun observe(o: () -> Unit) { observers += o }
     fun unobserve(o: () -> Unit) { observers -= o }
 
-    /** Playback position, extrapolated from the last progress report while playing. */
+    /** Called by the audio writer for each packet: what is being heard, and when. */
+    fun heard(rtpTime: Long, atNanos: Long) {
+        heardRtp = rtpTime
+        heardAtNanos = atNanos
+    }
+
+    /**
+     * Playback position: from the packet actually being heard when there is one (this matches
+     * the iPhone), else extrapolated from the last progress report.
+     */
     fun positionMs(): Long {
-        val p = if (paused) positionMs else positionMs + (SystemClock.elapsedRealtime() - positionAt)
-        return if (durationMs > 0) p.coerceIn(0, durationMs) else p
+        if (!paused) heardPositionMs()?.let { return it }
+        // The sender's progress report describes what it has sent: take off how far ahead it sends.
+        val p = if (paused) positionMs else positionMs + (SystemClock.elapsedRealtime() - positionAt) - senderLeadMs
+        return if (durationMs > 0) p.coerceIn(0, durationMs) else p.coerceAtLeast(0)
+    }
+
+    /** Position of the packet being heard, or null if none (yet) for this track. */
+    private fun heardPositionMs(): Long? {
+        if (heardRtp >= 0 && startRtp >= 0) {
+            val sinceMs = ((System.nanoTime() - heardAtNanos) / 1_000_000).coerceIn(-1000, 500)
+            val p = ((heardRtp - startRtp) and 0xffffffffL) * 1000 / AudioOutput.RATE + sinceMs
+            if (durationMs > 0 && p in 0..durationMs + 2000) return p.coerceAtMost(durationMs)
+        }
+        return null
     }
 
     fun setMetadata(dmap: ByteArray) {
@@ -62,6 +95,8 @@ object NowPlaying {
         val dur = ((end - start) and 0xffffffffL) * 1000 / rate
         val pos = ((current - start) and 0xffffffffL) * 1000 / rate
         post {
+            startRtp = start
+            heardRtp = -1 // a seek or new track: wait for its first packet to be heard
             durationMs = dur
             positionMs = pos
             positionAt = SystemClock.elapsedRealtime()
@@ -71,13 +106,29 @@ object NowPlaying {
 
     fun setPaused(p: Boolean) = post {
         if (p && !paused) {
+            // Freeze at what was last heard, then forget it: the flushed audio is never played.
             positionMs = positionMs()
+            heardRtp = -1
         }
         positionAt = SystemClock.elapsedRealtime()
         paused = p
     }
 
-    fun setActive(a: Boolean) = post { active = a }
+    fun setActive(a: Boolean) = post {
+        active = a
+        if (a) pin = null
+    }
+
+    /**
+     * Shows [p] until pairing succeeds, audio starts or it expires. Not cleared on disconnect:
+     * the iPhone drops the connection while the user types the PIN and then reconnects.
+     */
+    fun setPin(p: String?) = post {
+        pin = p
+        if (p != null) {
+            main.postDelayed({ if (pin == p) post { pin = null } }, PIN_TIMEOUT_MS)
+        }
+    }
 
     /** An iPhone connected: show it, waiting for audio or video. */
     fun setConnected(name: String) = post {

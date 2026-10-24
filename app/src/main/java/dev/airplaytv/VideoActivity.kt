@@ -18,6 +18,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.annotation.OptIn
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -185,7 +186,10 @@ class VideoActivity : Activity(), VideoController.Target {
         val http = OkHttpDataSource.Factory(ipv4FirstClient)
         val sources = DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http))
             .setLoadErrorHandlingPolicy(RetryPolicy())
-        val p = ExoPlayer.Builder(this).setMediaSourceFactory(sources).build()
+        val p = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(sources)
+            .setAudioAttributes(AudioAttributes.DEFAULT, /* handleAudioFocus= */ true)
+            .build()
         p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
             .setPreferredVideoMimeType(MimeTypes.VIDEO_H264)
             .build()
