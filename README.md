@@ -1,5 +1,7 @@
 # airplay-tv
 
+**Version 2.0** (versionCode 2). See [Changes](#changes) for what is new.
+
 An open-source AirPlay receiver for Android TV / Google TV sticks. It makes the stick show up in an
 iPhone's AirPlay menu for:
 
@@ -63,6 +65,20 @@ scripts/build-openssl-android.sh      # once: static libcrypto for both ABIs int
 ./gradlew assembleRelease             # app/build/outputs/apk/release/app-release.apk
 ```
 
+### Wallpaper (optional, not in git)
+
+The start screen and the "Connected — waiting…" / PIN screens can show a background image. No image
+is kept in this repository: put your own JPEG at
+
+```
+app/src/main/assets/wallpaper.jpg
+```
+
+before building and it is used; without it those screens are plain black. The path is in
+`.gitignore`, so the image is never committed. The TV draws its interface at 1920×1080; a
+3840×2160 (16:9) image is fine and is decoded once, in the background, at reduced colour depth to
+save memory. Images of another shape are centre-cropped to fill the screen.
+
 ## Install
 
 Turn on developer options and USB debugging on the TV, then:
@@ -111,7 +127,19 @@ Protocol logs: `adb shell setprop debug.airplaytv.verbose 1`, restart the app, `
 
 GPL-3.0 (see `LICENSE`), as required by UxPlay. Bundled third-party code: UxPlay `lib/` (GPL-3.0,
 including playfair GPL-3.0 and llhttp MIT), libplist 2.7 (LGPL-2.1), Apple ALAC decoder (Apache-2.0).
-The start/waiting-screen wallpaper (`res/drawable-nodpi/wallpaper.jpg`, a render of the black hole
-Gargantua) was supplied by the repo owner; it is not covered by the GPL. Check its licence before
-making the repository public, or replace it.
 OpenSSL 3.0 (Apache-2.0) is built locally by `scripts/build-openssl-android.sh` and linked statically.
+
+## Changes
+
+**2.0**
+- PIN pairing: new devices enter a 4-digit code shown on the TV once; settings to turn it off and
+  forget paired devices.
+- Back on Now Playing: *Continue in background* or *Stop & disconnect*. Other media on the TV pauses
+  AirPlay and the iPhone (DACP).
+- Audio is played at the sender's timestamps: sound and progress match the iPhone, pause is exact.
+- Screen mirroring, used by iOS for Photos pictures and videos and by Control Center.
+- "Connected — waiting for audio or video" and "Starting the stream" screens; new black/sky-blue icon.
+- Optional wallpaper from `assets/wallpaper.jpg` (not in git), else black.
+
+**0.1**
+- Music audio with Now Playing screen; YouTube-app video hand-off with pause/seek from the iPhone.

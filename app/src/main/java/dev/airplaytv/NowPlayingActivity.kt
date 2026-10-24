@@ -134,7 +134,11 @@ class NowPlayingActivity : Activity() {
 
     /** Waiting and PIN states have no cover art: show the wallpaper behind them instead. */
     private fun showWallpaper() {
-        if (backdrop.drawable == null) backdrop.setImageResource(R.drawable.wallpaper)
+        if (backdrop.drawable != null) return
+        Wallpaper.load(this) { bmp ->
+            // Only if still on a waiting/PIN screen (no cover art arrived meanwhile).
+            if (bmp != null && backdrop.drawable == null && shownCover == null) backdrop.setImageBitmap(bmp)
+        }
     }
 
     @Deprecated("Back is handled with a dialog; onBackPressedDispatcher needs AndroidX.")

@@ -2,7 +2,7 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#FF101014">
+    android:background="#FF000000">
 
     <!-- The cover art again, blurred and darkened, filling the screen. -->
     <ImageView

@@ -7,3 +7,5 @@ local.properties
 .idea/
 # Built by scripts/build-openssl-android.sh
 third_party/openssl/
+# Optional wallpaper for the start/waiting screens: add your own, never commit it (see README)
+app/src/main/assets/wallpaper.jpg

@@ -89,12 +89,11 @@ class MainActivity : Activity() {
             addView(hint)
             addView(buttons)
         }
+        val background = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
+        Wallpaper.load(this) { background.setImageBitmap(it) }
         setContentView(FrameLayout(this).apply {
-            setBackgroundColor(0xff050506.toInt())
-            addView(ImageView(this@MainActivity).apply {
-                setImageResource(R.drawable.wallpaper)
-                scaleType = ImageView.ScaleType.CENTER_CROP
-            }, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+            setBackgroundColor(0xff000000.toInt())
+            addView(background, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
             // Darken the left side, where the text is, so it stays readable over any wallpaper.
             addView(android.view.View(this@MainActivity).apply { setBackgroundResource(R.drawable.scrim) },
                 FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
