@@ -158,9 +158,10 @@ class AirPlayService : Service(), NativeBridge.Listener {
         }
     }
 
-    override fun audioFormat(ct: Int, spf: Int) {
+    override fun audioFormat(ct: Int, spf: Int, usingScreen: Boolean) {
         audio.start(ct)
         requestFocus()
+        if (usingScreen) return // sound of a screen-mirroring session: no Now Playing screen
         NowPlaying.setActive(true)
         main.post { show(NowPlayingActivity::class.java, null) }
     }
@@ -235,6 +236,7 @@ class AirPlayService : Service(), NativeBridge.Listener {
     fun disconnect() {
         Log.i(TAG, "Disconnecting the AirPlay client")
         worker.post { NativeBridge.nativeDisconnect() }
+        MirrorController.stop()
         audio.stop()
         abandonFocus()
         dacp.clear()
@@ -278,6 +280,7 @@ class AirPlayService : Service(), NativeBridge.Listener {
     private fun connectionsChanged(delta: Int) {
         openConnections = maxOf(0, openConnections + delta)
         if (openConnections == 0) {
+            MirrorController.stop()
             audio.stop()
             abandonFocus()
             dacp.clear()
@@ -302,7 +305,19 @@ class AirPlayService : Service(), NativeBridge.Listener {
     override fun videoRate(rate: Float) = VideoController.rate(rate)
     override fun videoStop() = VideoController.close()
 
+    override fun mirrorFormat(h265: Boolean, sourceWidth: Int, sourceHeight: Int, width: Int, height: Int) {
+        val starting = !MirrorController.active
+        MirrorController.format(h265, width, height)
+        if (starting) main.post { show(MirrorActivity::class.java, null) }
+    }
+
+    override fun mirrorFrame(data: ByteArray, ptsUs: Long) = MirrorController.frame(data, ptsUs)
+
     override fun videoReset(type: Int) {
+        when (type) {
+            NativeBridge.RESET_NOHOLD, NativeBridge.RESET_RTP_SHUTDOWN, NativeBridge.RESET_RTP_TO_HLS_TEARDOWN ->
+                MirrorController.stop()
+        }
         when (type) {
             NativeBridge.RESET_NOHOLD, NativeBridge.RESET_HLS_SHUTDOWN, NativeBridge.RESET_HLS_EOS -> VideoController.close()
         }
@@ -311,6 +326,7 @@ class AirPlayService : Service(), NativeBridge.Listener {
     override fun connectionLost(reason: Int) {
         Log.w(TAG, "Connection lost (reason $reason); restarting the AirPlay HTTP server")
         VideoController.close()
+        MirrorController.stop()
         audio.stop()
         NowPlaying.clear()
         // Not on the calling thread: it may be the HTTP server thread that is being restarted.

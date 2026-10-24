@@ -11,6 +11,17 @@ iPhone's AirPlay menu for:
   (full screen, ExoPlayer). Pause, play and seek from the iPhone work, and the iPhone's scrubber
   follows the TV.
 
+- **Photos and Screen Mirroring**: iOS sends Photos pictures and videos (and Control Center's
+  Screen Mirroring) as a live mirrored H.264 stream, decoded with the TV's hardware decoder.
+- **PIN pairing**: a new iPhone/iPad/Mac must enter a 4-digit code shown on the TV, once; its
+  pairing key is then remembered. The PIN can be turned off, and paired devices forgotten, on the
+  app's start screen.
+- **Plays nicely with the TV**: Back on the Now Playing screen offers *Continue in background* or
+  *Stop & disconnect*. In the background, when another app starts playing on the TV, AirPlay goes
+  quiet and the iPhone is paused (over DACP); pressing play on the iPhone takes the TV back.
+- **In sync with the iPhone**: audio is played at the time the iPhone stamps on each packet, so the
+  TV's sound and progress bar match the Music app (and its lyrics), and stop together on pause.
+
 It starts by itself at boot and runs as a foreground service. Developed and tested on a
 **Thomson 152** (Android TV 14, 32-bit `armeabi-v7a`) with an iPhone on iOS 26 (build 23G90).
 
@@ -38,6 +49,9 @@ This project replaces UxPlay's GStreamer renderers and DNS-SD backend with Andro
 | `AudioOutput.kt` | AudioTrack output, AAC decoding, AirPlay volume curve |
 | `NowPlayingActivity.kt`, `NowPlaying.kt`, `ScrollingTextView.kt` | Now Playing screen and its state |
 | `VideoActivity.kt`, `VideoController.kt` | Full-screen video and iPhone remote control |
+| `MirrorActivity.kt`, `MirrorController.kt` | Screen mirroring (Photos): H.264 → MediaCodec → surface |
+| `PairedDevices.kt` | Devices that entered the PIN once |
+| `DacpRemote.kt` | Sends "pause" back to the iPhone when other TV media starts |
 
 ## Build
 
@@ -76,8 +90,9 @@ Protocol logs: `adb shell setprop debug.airplaytv.verbose 1`, restart the app, `
 
 - **No DRM.** FairPlay-protected video (Apple TV app, Netflix, most paid services) cannot be decrypted:
   that needs Apple's keys. Such apps won't offer this receiver for video, or send audio only.
-- **No screen mirroring**, by design (the mirroring feature bit is off). iOS sends **Photos videos**
-  as mirroring, so those don't play.
+- **Photos are mirrored, not sent as files.** iOS re-encodes the screen live: standard dynamic
+  range (HDR videos are shown in SDR), at most 1920×1080, and some compression. Only Apple's own
+  AirPlay 2 receivers get the original file.
 - **Safari / web video sends audio only.** On iOS 26 Safari does not hand video URLs to this receiver,
   even for a plain HLS `<video>` (tested with Apple's own example page); the picture stays on the
   iPhone. UxPlay has the same limit. The **YouTube app** works; YouTube *in Safari* does not.
@@ -87,10 +102,10 @@ Protocol logs: `adb shell setprop debug.airplaytv.verbose 1`, restart the app, `
   time. Update the vendored UxPlay `lib/` when UxPlay releases fixes.
 - **Not AirPlay 2 multi-room.** It is a single "realtime" AirPlay receiver: no buffered audio, no
   grouping with HomePods or other speakers.
-- Audio is played as it arrives (timestamps are not used for sync), so lyrics/progress on the iPhone can
-  be a fraction of a second off from what you hear.
-- No access control: anyone on the Wi-Fi network can AirPlay to the TV (UxPlay's PIN / password
-  options are not wired up).
+- Audio timing uses the iPhone's own timestamps and assumes the iPhone and TV clocks agree (both keep
+  internet time): UxPlay's NTP clock exchange with the iPhone does not complete on this setup. If a
+  clock is badly off, audio falls back to playing as it arrives.
+- Mirroring sound and picture are each played as they arrive (no lip-sync correction).
 
 ## Licence
 

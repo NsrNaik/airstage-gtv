@@ -11,11 +11,13 @@ object NativeBridge {
     const val RESET_RTP_SHUTDOWN = 1
     const val RESET_HLS_SHUTDOWN = 2
     const val RESET_HLS_EOS = 3
+    const val RESET_RTP_TO_HLS_TEARDOWN = 5
 
     interface Listener {
         fun registerService(type: String, name: String, port: Int, txt: Map<String, String>)
         fun unregisterService(type: String)
-        fun audioFormat(ct: Int, spf: Int)
+        /** [usingScreen]: the audio belongs to a screen-mirroring session. */
+        fun audioFormat(ct: Int, spf: Int, usingScreen: Boolean)
         /** [delayNs]: when the sender wants it heard, from now (0 = at once); [rtpTime]: its RTP timestamp. */
         fun audioPcm(pcm: ShortArray, delayNs: Long, rtpTime: Long)
         fun audioAac(frame: ByteArray)
@@ -37,6 +39,8 @@ object NativeBridge {
         fun videoStop()
         fun videoReset(type: Int)
         fun connectionLost(reason: Int)
+        fun mirrorFormat(h265: Boolean, sourceWidth: Int, sourceHeight: Int, width: Int, height: Int)
+        fun mirrorFrame(data: ByteArray, ptsUs: Long)
     }
 
     @Volatile
@@ -60,7 +64,7 @@ object NativeBridge {
     }
 
     @JvmStatic fun onUnregisterService(type: String) { listener?.unregisterService(type) }
-    @JvmStatic fun onAudioFormat(ct: Int, spf: Int) { listener?.audioFormat(ct, spf) }
+    @JvmStatic fun onAudioFormat(ct: Int, spf: Int, usingScreen: Boolean) { listener?.audioFormat(ct, spf, usingScreen) }
     @JvmStatic fun onAudioPcm(pcm: ShortArray, delayNs: Long, rtpTime: Long) { listener?.audioPcm(pcm, delayNs, rtpTime) }
     @JvmStatic fun onAudioAac(frame: ByteArray) { listener?.audioAac(frame) }
     @JvmStatic fun onAudioFlush() { listener?.audioFlush() }
@@ -83,4 +87,8 @@ object NativeBridge {
     @JvmStatic fun onVideoStop() { listener?.videoStop() }
     @JvmStatic fun onVideoReset(type: Int) { listener?.videoReset(type) }
     @JvmStatic fun onConnReset(reason: Int) { listener?.connectionLost(reason) }
+    @JvmStatic fun onMirrorFormat(h265: Boolean, sourceWidth: Int, sourceHeight: Int, width: Int, height: Int) {
+        listener?.mirrorFormat(h265, sourceWidth, sourceHeight, width, height)
+    }
+    @JvmStatic fun onMirrorFrame(data: ByteArray, ptsUs: Long) { listener?.mirrorFrame(data, ptsUs) }
 }

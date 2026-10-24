@@ -74,6 +74,7 @@ static struct {
     jmethodID audioFormat, audioPcm, audioAac, audioFlush, volume;
     jmethodID coverArt, metadata, progress, connections, client;
     jmethodID pin, registerClient, checkRegister, dacp, audioStopped;
+    jmethodID mirrorFormat, mirrorFrame;
     jmethodID videoPlay, videoScrub, videoRate, videoStop, videoReset, connReset;
 } m;
 
@@ -182,7 +183,7 @@ static void cb_audio_get_format(void *, unsigned char *ct, unsigned short *spf, 
         }
     }
     JNIEnv *e = env();
-    e->CallStaticVoidMethod(g_bridge, m.audioFormat, (jint) *ct, (jint) *spf);
+    e->CallStaticVoidMethod(g_bridge, m.audioFormat, (jint) *ct, (jint) *spf, (jboolean) *usingScreen);
     check(e);
 }
 
@@ -289,16 +290,31 @@ static void cb_report_client_request(void *, char *deviceid, char *model, char *
     e->DeleteLocalRef(mo);
 }
 
-static void cb_video_process(void *, raop_ntp_t *, video_decode_struct *) {
-    /* Screen mirroring is not supported: the mirroring feature bit is off, so this should not be called. */
+/* Screen mirroring (iOS uses it for Photos): H.264 access units, Annex-B, SPS/PPS prepended to the first. */
+static void cb_video_process(void *, raop_ntp_t *, video_decode_struct *data) {
+    if (!data->data || data->data_len <= 0) {
+        return;
+    }
+    JNIEnv *e = env();
+    jbyteArray a = bytes(e, data->data, data->data_len);
+    e->CallStaticVoidMethod(g_bridge, m.mirrorFrame, a, (jlong) (data->ntp_time_remote / 1000));
+    check(e);
+    e->DeleteLocalRef(a);
 }
 
 static void cb_video_pause(void *) {}
 static void cb_video_resume(void *) {}
 static void cb_video_flush(void *) {}
 
-static int cb_video_set_codec_and_size(void *, video_codec_t, unsigned short, unsigned short, unsigned short,
-                                       unsigned short, unsigned short, unsigned short) {
+static int cb_video_set_codec_and_size(void *, video_codec_t codec, unsigned short width_source,
+                                       unsigned short height_source, unsigned short, unsigned short,
+                                       unsigned short width, unsigned short height) {
+    LOGI("mirror video %s %ux%u (source %ux%u)", codec == VIDEO_CODEC_H265 ? "H.265" : "H.264",
+         width, height, width_source, height_source);
+    JNIEnv *e = env();
+    e->CallStaticVoidMethod(g_bridge, m.mirrorFormat, (jboolean) (codec == VIDEO_CODEC_H265),
+                            (jint) width_source, (jint) height_source, (jint) width, (jint) height);
+    check(e);
     return 0;
 }
 
@@ -450,7 +466,7 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *) {
     m.registerService = e->GetStaticMethodID(c, "onRegisterService",
                                              "(Ljava/lang/String;Ljava/lang/String;I[Ljava/lang/String;[Ljava/lang/String;)V");
     m.unregisterService = e->GetStaticMethodID(c, "onUnregisterService", "(Ljava/lang/String;)V");
-    m.audioFormat = e->GetStaticMethodID(c, "onAudioFormat", "(II)V");
+    m.audioFormat = e->GetStaticMethodID(c, "onAudioFormat", "(IIZ)V");
     m.audioPcm = e->GetStaticMethodID(c, "onAudioPcm", "([SJJ)V");
     m.audioAac = e->GetStaticMethodID(c, "onAudioAac", "([B)V");
     m.audioFlush = e->GetStaticMethodID(c, "onAudioFlush", "()V");
@@ -465,6 +481,8 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *) {
     m.checkRegister = e->GetStaticMethodID(c, "onCheckRegister", "(Ljava/lang/String;)Z");
     m.dacp = e->GetStaticMethodID(c, "onDacp", "(Ljava/lang/String;Ljava/lang/String;)V");
     m.audioStopped = e->GetStaticMethodID(c, "onAudioStopped", "()V");
+    m.mirrorFormat = e->GetStaticMethodID(c, "onMirrorFormat", "(ZIIII)V");
+    m.mirrorFrame = e->GetStaticMethodID(c, "onMirrorFrame", "([BJ)V");
     m.videoPlay = e->GetStaticMethodID(c, "onVideoPlay", "(Ljava/lang/String;F)V");
     m.videoScrub = e->GetStaticMethodID(c, "onVideoScrub", "(F)V");
     m.videoRate = e->GetStaticMethodID(c, "onVideoRate", "(F)V");
@@ -501,9 +519,9 @@ Java_dev_airplaytv_NativeBridge_nativeStart(JNIEnv *e, jobject, jstring jname, j
         LOGE("dnssd_init failed: %d", err);
         goto done;
     }
-    /* Feature set as in uxplay.cpp's start_dnssd(), with HLS video on and screen mirroring off. */
+    /* Feature set as in uxplay.cpp's start_dnssd(), with HLS video and screen mirroring (bit 7) on. */
     {
-        static const int on[] = {0, 1, 2, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 25, 28, 30};
+        static const int on[] = {0, 1, 2, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 25, 28, 30};
         for (int bit = 0; bit < 64; bit++) {
             dnssd_set_airplay_features(g_dnssd, bit, 0);
         }
