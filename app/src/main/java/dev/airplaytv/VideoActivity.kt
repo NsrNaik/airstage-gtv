@@ -6,8 +6,17 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.util.Log
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.WindowManager
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -39,6 +48,9 @@ import okhttp3.OkHttpClient
 class VideoActivity : Activity(), VideoController.Target {
 
     private lateinit var view: PlayerView
+    private lateinit var overlay: LinearLayout
+    private lateinit var status: TextView
+    private var statusText = 0
     private var player: ExoPlayer? = null
     private val main = Handler(Looper.getMainLooper())
     private var finished = false
@@ -59,17 +71,76 @@ class VideoActivity : Activity(), VideoController.Target {
         }
     }
 
+    /** Animates the "…" of the status line until the first frame is on screen. */
+    private val statusTicker = object : Runnable {
+        override fun run() {
+            if (overlay.visibility != View.VISIBLE || statusText == 0) return
+            if (statusText == R.string.stream_failed) {
+                status.text = getString(statusText)
+            } else {
+                // Always three dots, the unused ones transparent, so the centred line never shifts.
+                val shown = animatedEllipsis().length
+                status.text = SpannableString(getString(statusText) + "...").apply {
+                    setSpan(ForegroundColorSpan(0), length - 3 + shown, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+            }
+            main.postDelayed(this, 150)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         view = PlayerView(this).apply {
             setBackgroundColor(0xff000000.toInt())
-            setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
+            setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
             controllerAutoShow = false
         }
-        setContentView(view)
+        setContentView(FrameLayout(this).apply {
+            addView(view)
+            addView(buildOverlay())
+        })
         VideoController.target = this
         load(intent)
+    }
+
+    /** "iPhone → TV" and a status line, shown over the player until the video starts. */
+    private fun buildOverlay(): View {
+        val d = resources.displayMetrics.density
+        val header = TextView(this).apply {
+            val tv = AirPlayService.deviceName(this@VideoActivity)
+            text = NowPlaying.clientName.takeIf { it.isNotEmpty() }?.let { "$it  →  $tv" } ?: tv
+            textSize = 18f
+            setTextColor(0xb3ffffff.toInt())
+            setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_airplay, 0, 0, 0)
+            compoundDrawablePadding = (10 * d).toInt()
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        status = TextView(this).apply {
+            textSize = 30f
+            setTextColor(0xffffffff.toInt())
+            setPadding(0, (16 * d).toInt(), 0, 0)
+        }
+        overlay = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(0xff101014.toInt())
+            addView(header, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+            addView(status, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+        }
+        return overlay
+    }
+
+    private fun showStatus(text: Int) {
+        statusText = text
+        overlay.visibility = View.VISIBLE
+        main.removeCallbacks(statusTicker)
+        main.post(statusTicker)
+    }
+
+    private fun hideStatus() {
+        overlay.visibility = View.GONE
+        main.removeCallbacks(statusTicker)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -82,6 +153,7 @@ class VideoActivity : Activity(), VideoController.Target {
         val start = intent.getFloatExtra(EXTRA_START, 0f)
         release()
         finished = false
+        showStatus(R.string.starting_stream)
         val generation = ++loadGeneration
         Log.i(TAG, "Playing $url from ${start}s")
         // UxPlay fetches the YouTube playlists from the iPhone after /play: wait until the master playlist is served.
@@ -118,6 +190,8 @@ class VideoActivity : Activity(), VideoController.Target {
             .setPreferredVideoMimeType(MimeTypes.VIDEO_H264)
             .build()
         p.addListener(object : Player.Listener {
+            override fun onRenderedFirstFrame() = hideStatus()
+
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) {
                     finished = true
@@ -128,6 +202,7 @@ class VideoActivity : Activity(), VideoController.Target {
 
             override fun onPlayerError(error: PlaybackException) {
                 Log.e(TAG, "Playback failed", error)
+                showStatus(R.string.stream_failed)
                 finished = true
                 report()
             }

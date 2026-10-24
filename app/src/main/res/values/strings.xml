@@ -3,4 +3,9 @@
     <string name="app_name">AirPlay Receiver</string>
     <string name="airplay_label">AirPlay</string>
     <string name="waiting_title">AirPlay</string>
+    <string name="connected_title">Connected</string>
+    <string name="waiting_for_media">Waiting for audio or video to be played</string>
+    <string name="waiting_hint">Play something on your iPhone</string>
+    <string name="starting_stream">Starting the stream, give it a moment</string>
+    <string name="stream_failed">Couldn\'t start the stream</string>
 </resources>

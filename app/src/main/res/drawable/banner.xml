@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 320x180 leanback launcher banner. -->
+<!-- 320x180 leanback launcher banner: sky-blue AirPlay mark on black. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
         <shape>
-            <gradient android:angle="315" android:startColor="#FF1C2A4A" android:endColor="#FF4A2350" />
+            <solid android:color="#FF000000" />
             <size android:width="320dp" android:height="180dp" />
         </shape>
     </item>
-    <item android:drawable="@drawable/ic_airplay" android:gravity="center"
-        android:width="88dp" android:height="88dp" />
+    <item android:drawable="@drawable/ic_airplay_sky" android:gravity="center"
+        android:width="96dp" android:height="96dp" />
 </layer-list>

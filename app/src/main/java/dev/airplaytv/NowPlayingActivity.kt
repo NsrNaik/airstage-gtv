@@ -15,7 +15,8 @@ import android.widget.TextView
 
 /**
  * Full-screen "Now Playing" for AirPlay audio: large cover art over a blurred copy of it,
- * with title, artist, album and track progress sent by the iPhone.
+ * with title, artist, album and track progress sent by the iPhone. Before any audio arrives it
+ * shows which iPhone connected and that the TV is waiting for audio or video.
  */
 class NowPlayingActivity : Activity() {
 
@@ -31,12 +32,13 @@ class NowPlayingActivity : Activity() {
 
     private val main = Handler(Looper.getMainLooper())
     private var shownCover: Bitmap? = null
+    private var shownPlaceholder = 0
 
     private val onChange: () -> Unit = { render() }
     private val ticker = object : Runnable {
         override fun run() {
-            renderProgress()
-            main.postDelayed(this, 500)
+            if (NowPlaying.active) renderProgress() else render()
+            main.postDelayed(this, if (NowPlaying.active) 500 else 150)
         }
     }
 
@@ -78,31 +80,42 @@ class NowPlayingActivity : Activity() {
     }
 
     private fun render() {
-        if (!NowPlaying.active) {
+        if (!NowPlaying.active && !NowPlaying.connected) {
             // The iPhone disconnected (or switched to another receiver).
-            main.postDelayed({ if (!NowPlaying.active) finish() }, 1500)
+            main.postDelayed({ if (!NowPlaying.active && !NowPlaying.connected) finish() }, 1500)
         }
         val tv = AirPlayService.deviceName(this)
         val header = NowPlaying.clientName.takeIf { it.isNotEmpty() }?.let { "$it  →  $tv" } ?: tv
         setIfChanged(source, header)
+        if (!NowPlaying.active) {
+            setIfChanged(title, getString(R.string.connected_title))
+            setIfChanged(artist, getString(R.string.waiting_for_media) + animatedEllipsis())
+            setIfChanged(album, getString(R.string.waiting_hint))
+            showCover(null, R.drawable.ic_airplay)
+            renderProgress()
+            return
+        }
         val t = NowPlaying.track
         setIfChanged(title, t.title.ifEmpty { getString(R.string.waiting_title) })
         setIfChanged(artist, t.artist)
         setIfChanged(album, t.album)
-        val bmp = NowPlaying.cover
-        if (bmp !== shownCover) {
-            shownCover = bmp
-            if (bmp != null) {
-                cover.setImageBitmap(bmp)
-                cover.scaleType = ImageView.ScaleType.CENTER_CROP
-                backdrop.setImageBitmap(blur(bmp))
-            } else {
-                cover.setImageResource(R.drawable.ic_music_note)
-                cover.scaleType = ImageView.ScaleType.CENTER
-                backdrop.setImageDrawable(null)
-            }
-        }
+        showCover(NowPlaying.cover, R.drawable.ic_music_note)
         renderProgress()
+    }
+
+    private fun showCover(bmp: Bitmap?, placeholder: Int) {
+        if (bmp === shownCover && placeholder == shownPlaceholder) return
+        shownCover = bmp
+        shownPlaceholder = placeholder
+        if (bmp != null) {
+            cover.setImageBitmap(bmp)
+            cover.scaleType = ImageView.ScaleType.CENTER_CROP
+            backdrop.setImageBitmap(blur(bmp))
+        } else {
+            cover.setImageResource(placeholder)
+            cover.scaleType = ImageView.ScaleType.CENTER
+            backdrop.setImageDrawable(null)
+        }
     }
 
     /** Re-setting identical text would restart a running scroll from the beginning. */

@@ -27,6 +27,9 @@ object NowPlaying {
     /** Name of the sending device, e.g. "Alex's iPhone". */
     var clientName = ""
         private set
+    /** True while an iPhone is connected, before or during playback. */
+    var connected = false
+        private set
     /** True while an AirPlay audio session is open. */
     var active = false
         private set
@@ -76,9 +79,14 @@ object NowPlaying {
 
     fun setActive(a: Boolean) = post { active = a }
 
-    fun setClient(name: String) = post { clientName = name }
+    /** An iPhone connected: show it, waiting for audio or video. */
+    fun setConnected(name: String) = post {
+        clientName = name
+        connected = true
+    }
 
     fun clear() = post {
+        connected = false
         active = false
         track = Track()
         cover = null
@@ -119,3 +127,6 @@ object NowPlaying {
         return Track(title, artist, album)
     }
 }
+
+/** "", ".", "..", "..." cycling with the clock, for status lines (animations may be off on TVs). */
+fun animatedEllipsis(): String = ".".repeat(((android.os.SystemClock.uptimeMillis() / 450) % 4).toInt())

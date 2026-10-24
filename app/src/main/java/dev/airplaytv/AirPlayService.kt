@@ -152,7 +152,11 @@ class AirPlayService : Service(), NativeBridge.Listener {
         VideoController.setVolume(db)
     }
 
-    override fun client(name: String, model: String) = NowPlaying.setClient(name)
+    override fun client(name: String, model: String) {
+        NowPlaying.setConnected(name)
+        // Show who connected straight away, unless a video is already on screen.
+        main.post { if (VideoController.target == null) show(NowPlayingActivity::class.java, null) }
+    }
     override fun coverArt(jpeg: ByteArray) = NowPlaying.setCover(jpeg)
     override fun metadata(dmap: ByteArray) = NowPlaying.setMetadata(dmap)
     override fun progress(start: Long, current: Long, end: Long) = NowPlaying.setProgress(start, current, end)
