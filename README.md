@@ -1,6 +1,6 @@
 # AirStage
 
-AirStage (repository `airplay-tv`).
+**AirPlay receiver for Google TV** (repository `airstage-gtv`).
 
 **Version 3.0** (versionCode 3). See [Changes](#changes) for what is new.
 
@@ -149,6 +149,13 @@ Protocol logs: `adb shell setprop debug.airplaytv.verbose 1`, restart the app, `
 - The TV's elapsed/remaining time can differ from the iPhone's by about a second, varying from one
   session to the next: the iPhone never sends its exact on-screen time, only positions that are
   1–2 s off from what is being heard, so the TV shows the audio it actually plays.
+
+## Disclaimer
+
+AirStage is an independent open-source project. It is not affiliated with, endorsed by or
+sponsored by Apple Inc. or Google LLC. AirPlay, iPhone and Apple Music are trademarks of Apple Inc.;
+Google TV and Android TV are trademarks of Google LLC. The AirPlay protocol support comes from the
+reverse-engineered [UxPlay](https://github.com/FDH2/UxPlay) project.
 
 ## Licence
 
