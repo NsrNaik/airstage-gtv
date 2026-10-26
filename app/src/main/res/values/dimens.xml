@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The "phone · · · TV" header above the cover, and the gap below it. -->
+    <dimen name="header_height">24dp</dimen>
+    <dimen name="header_gap">20dp</dimen>
+</resources>

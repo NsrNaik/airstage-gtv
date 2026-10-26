@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Now Playing defaults (warm ivory); replaced per song by colours from the album art. -->
+    <color name="ivory">#FFFBF3E6</color>
+    <color name="ivory_soft">#B3FBF3E6</color>
+</resources>

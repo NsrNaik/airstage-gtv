@@ -11,6 +11,7 @@ import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.util.Log
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.WindowManager
@@ -33,12 +34,9 @@ import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.ui.PlayerView
 import java.net.HttpURLConnection
-import java.net.Inet4Address
 import java.net.URL
 import kotlin.concurrent.thread
 import kotlin.math.pow
-import okhttp3.Dns
-import okhttp3.OkHttpClient
 
 /**
  * Full-screen player for AirPlay video handed over as a URL (the YouTube app's HLS stream,
@@ -108,14 +106,9 @@ class VideoActivity : Activity(), VideoController.Target {
     /** "iPhone → TV" and a status line, shown over the player until the video starts. */
     private fun buildOverlay(): View {
         val d = resources.displayMetrics.density
-        val header = TextView(this).apply {
-            val tv = AirPlayService.deviceName(this@VideoActivity)
-            text = NowPlaying.clientName.takeIf { it.isNotEmpty() }?.let { "$it  →  $tv" } ?: tv
-            textSize = 18f
-            setTextColor(0xb3ffffff.toInt())
-            setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_airplay, 0, 0, 0)
-            compoundDrawablePadding = (10 * d).toInt()
-            gravity = Gravity.CENTER_VERTICAL
+        val header = ConnectionHeader(this).apply {
+            set(NowPlaying.clientName, AirPlayService.deviceName(this@VideoActivity))
+            setLive(true) // the stream is on its way
         }
         status = TextView(this).apply {
             textSize = 30f
@@ -183,7 +176,7 @@ class VideoActivity : Activity(), VideoController.Target {
         val item = MediaItem.Builder().setUri(Uri.parse(url)).apply {
             if (url.contains(".m3u8")) setMimeType(MimeTypes.APPLICATION_M3U8)
         }.build()
-        val http = OkHttpDataSource.Factory(ipv4FirstClient)
+        val http = OkHttpDataSource.Factory(Net.client)
         val sources = DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http))
             .setLoadErrorHandlingPolicy(RetryPolicy())
         val p = ExoPlayer.Builder(this)
@@ -238,6 +231,35 @@ class VideoActivity : Activity(), VideoController.Target {
         )
     }
 
+    /**
+     * TV remote while a video plays: OK / play-pause toggles, ◀ ▶ skip 10 s. The video plays on
+     * the TV, so this acts on the player here; the iPhone follows through its playback polls.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val p = player ?: return super.dispatchKeyEvent(event)
+        val action: (() -> Unit)? = when (event.keyCode) {
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { { p.playWhenReady = !p.playWhenReady } }
+            KeyEvent.KEYCODE_MEDIA_PLAY -> { { p.playWhenReady = true } }
+            KeyEvent.KEYCODE_MEDIA_PAUSE -> { { p.playWhenReady = false } }
+            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { { skip(p, SKIP_MS) } }
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_REWIND -> { { skip(p, -SKIP_MS) } }
+            else -> null
+        }
+        if (action == null) return super.dispatchKeyEvent(event)
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            action()
+            report()
+            view.showController() // brief progress bar as feedback; it hides by itself
+        }
+        return true
+    }
+
+    private fun skip(p: ExoPlayer, deltaMs: Long) {
+        val target = (p.currentPosition + deltaMs).coerceAtLeast(0)
+        p.seekTo(if (p.duration == C.TIME_UNSET) target else target.coerceAtMost(p.duration))
+    }
+
     override fun seek(seconds: Float) {
         player?.seekTo((seconds * 1000).toLong())
     }
@@ -282,28 +304,9 @@ class VideoActivity : Activity(), VideoController.Target {
     companion object {
         private const val TAG = "VideoActivity"
 
-        /**
-         * Tries IPv4 addresses first. Home networks often hand out IPv6 addresses (e.g. fd00::/8)
-         * with no IPv6 route to the internet; plain HttpURLConnection then waits out the full
-         * connect timeout on YouTube's IPv6 address before anything plays.
-         */
-        private val ipv4FirstClient = OkHttpClient.Builder()
-            .dns(object : Dns {
-                override fun lookup(hostname: String) =
-                    Dns.SYSTEM.lookup(hostname).sortedBy { if (it is Inet4Address) 0 else 1 }
-            })
-            // UxPlay's local playlist server answers one request per connection: don't reuse them.
-            .addInterceptor { chain ->
-                val request = chain.request()
-                if (request.url.host == "localhost") {
-                    chain.proceed(request.newBuilder().header("Connection", "close").build())
-                } else {
-                    chain.proceed(request)
-                }
-            }
-            .build()
 
         private const val ORPHAN_TIMEOUT_MS = 75_000L
+        private const val SKIP_MS = 10_000L
         const val EXTRA_URL = "url"
         const val EXTRA_START = "start"
     }

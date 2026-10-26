@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">AirPlay Receiver</string>
-    <string name="airplay_label">AirPlay</string>
+    <string name="app_name">AirStage</string>
     <string name="waiting_title">AirPlay</string>
     <string name="connected_title">Connected</string>
     <string name="waiting_for_media">Waiting for audio or video to be played</string>
@@ -13,5 +12,11 @@
     <string name="back_continue">Continue in background</string>
     <string name="back_stop">Stop &amp; disconnect</string>
     <string name="back_message">In the background, AirPlay pauses by itself when something else plays on the TV.</string>
+    <string name="refresh_network">Refresh on network</string>
+    <string name="refresh_done">Announced again ✓</string>
+    <string name="lyrics_hint">▼  Lyrics</string>
+    <string name="paused">Paused</string>
+    <string name="remote_next">Next track</string>
+    <string name="remote_previous">Previous track</string>
     <string name="stream_failed">Couldn\'t start the stream</string>
 </resources>

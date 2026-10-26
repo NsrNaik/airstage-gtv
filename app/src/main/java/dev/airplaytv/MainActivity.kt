@@ -1,6 +1,7 @@
 package dev.airplaytv
 
 import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -23,6 +24,7 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var pinButton: Button
     private lateinit var forgetButton: Button
+    private lateinit var refreshButton: Button
     private val main = Handler(Looper.getMainLooper())
     private val refresh = object : Runnable {
         override fun run() {
@@ -72,10 +74,21 @@ class MainActivity : Activity() {
                 renderSettings()
             }
         }
+        refreshButton = Button(this).apply {
+            text = getString(R.string.refresh_network)
+            setOnClickListener {
+                AirPlayService.instance?.refresh()
+                text = getString(R.string.refresh_done)
+                main.postDelayed({ text = getString(R.string.refresh_network) }, 3000)
+            }
+        }
         val buttons = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, (32 * d).toInt(), 0, 0)
-            addView(pinButton)
+            addView(refreshButton)
+            addView(pinButton, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
+                marginStart = (16 * d).toInt()
+            })
             addView(forgetButton, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
                 marginStart = (16 * d).toInt()
             })
@@ -100,19 +113,32 @@ class MainActivity : Activity() {
             addView(content, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         })
         renderSettings()
-        pinButton.requestFocus()
+        refreshButton.requestFocus()
     }
 
     private fun renderSettings() {
         val pinOn = AirPlayService.requirePin(this)
         pinButton.text = if (pinOn) "PIN for new devices: On" else "PIN for new devices: Off"
         val names = PairedDevices(this).names()
-        forgetButton.text = if (names.isEmpty()) "No paired devices" else "Forget paired devices (${names.joinToString()})"
+        forgetButton.text = if (names.isEmpty()) "No paired devices" else "Forget paired devices (${names.size})"
         forgetButton.isEnabled = names.isNotEmpty()
     }
 
     override fun onStart() {
         super.onStart()
+        // Opening the app while AirPlay is running (e.g. after "Continue in background") goes back to
+        // what is playing, not to this start screen.
+        val playing = when {
+            MirrorController.active -> MirrorActivity::class.java
+            NowPlaying.active || NowPlaying.connected || NowPlaying.pin != null -> NowPlayingActivity::class.java
+            else -> null
+        }
+        if (playing != null) {
+            AirPlayService.instance?.inBackground = false // the user came back to it
+            startActivity(Intent(this, playing))
+            finish()
+            return
+        }
         main.post(refresh)
         renderSettings()
     }

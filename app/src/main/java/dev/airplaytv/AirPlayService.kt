@@ -34,6 +34,9 @@ class AirPlayService : Service(), NativeBridge.Listener {
     private lateinit var nsd: NsdManager
     private var multicastLock: WifiManager.MulticastLock? = null
     private val registrations = mutableMapOf<String, NsdManager.RegistrationListener>()
+    /** What was announced per service type, to announce it again on "Refresh on network". */
+    private class Announcement(val name: String, val port: Int, val txt: Map<String, String>)
+    private val announced = mutableMapOf<String, Announcement>()
     private val audio = AudioOutput()
     private var openConnections = 0
     private lateinit var paired: PairedDevices
@@ -68,6 +71,7 @@ class AirPlayService : Service(), NativeBridge.Listener {
 
         NativeBridge.listener = this
         val name = airPlayName(this)
+        startedName = name
         worker.post {
             val keyFile = File(filesDir, "airplay-key.pem").absolutePath
             val port = NativeBridge.nativeStart(
@@ -97,7 +101,7 @@ class AirPlayService : Service(), NativeBridge.Listener {
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "AirPlay receiver", NotificationManager.IMPORTANCE_LOW))
         val notification = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_airplay)
-            .setContentTitle("AirPlay receiver")
+            .setContentTitle(getString(R.string.app_name))
             .setContentText("Waiting for AirPlay as \"${airPlayName(this)}\"")
             .setOngoing(true)
             .build()
@@ -128,6 +132,7 @@ class AirPlayService : Service(), NativeBridge.Listener {
 
     private fun doRegister(type: String, name: String, port: Int, txt: Map<String, String>) {
         unregisterService(type)
+        announced[type] = Announcement(name, port, txt)
         val info = NsdServiceInfo().apply {
             serviceName = name
             serviceType = type
@@ -160,13 +165,25 @@ class AirPlayService : Service(), NativeBridge.Listener {
 
     override fun audioFormat(ct: Int, spf: Int, usingScreen: Boolean) {
         audio.start(ct)
-        requestFocus()
-        if (usingScreen) return // sound of a screen-mirroring session: no Now Playing screen
-        NowPlaying.setActive(true)
-        main.post { show(NowPlayingActivity::class.java, null) }
+        if (usingScreen) { // sound of a screen-mirroring session: no Now Playing screen
+            requestFocus()
+            return
+        }
+        // iOS sets the stream up as soon as the TV is picked, even while the song is paused: show
+        // "Connected" for now; the song screen (and the TV's audio focus) wait for actual sound.
+        NowPlaying.setConnected(NowPlaying.clientName)
+        main.post { if (!inBackground) show(NowPlayingActivity::class.java, null) }
     }
 
+    /** True once sound has arrived in this session (see [audioFormat]). */
+    @Volatile private var soundStarted = false
+
     override fun audioPcm(pcm: ShortArray, delayNs: Long, rtpTime: Long) {
+        if (!soundStarted) {
+            soundStarted = true
+            requestFocus()
+            NowPlaying.setActive(true)
+        }
         if (resumeIfAllowed()) audio.pcm(pcm, delayNs, rtpTime)
     }
 
@@ -232,9 +249,61 @@ class AirPlayService : Service(), NativeBridge.Listener {
         pausedForOtherMedia = false
     }
 
+    /** The name the receiver was started under (the TV's device name + " AirStage"). */
+    private var startedName = ""
+
+    /**
+     * "Refresh on network" button: if the TV was renamed (Settings → System → About → Device
+     * name) since the receiver started, restart it under the new name; otherwise re-announce.
+     */
+    fun refresh() {
+        if (airPlayName(this) != startedName) {
+            Log.i(TAG, "Device renamed: restarting as \"${airPlayName(this)}\"")
+            restart(this)
+        } else {
+            reannounce()
+        }
+    }
+
+    /**
+     * "Refresh on network": withdraw and re-announce the AirPlay services, for when the TV has
+     * dropped out of Apple devices' AirPlay lists (Wi-Fi reconnect, sleep). Main thread.
+     */
+    fun reannounce() {
+        val again = announced.toMap()
+        Log.i(TAG, "Re-announcing ${again.keys}")
+        again.keys.forEach { unregisterService(it) }
+        // Give the withdrawal a moment to go out, or the same name is refused as a conflict.
+        main.postDelayed({ again.forEach { (type, a) -> doRegister(type, a.name, a.port, a.txt) } }, 1500)
+    }
+
+    /**
+     * "Continue in background" was chosen: don't bring Now Playing back by itself (on the next
+     * song, after pause/play, on reconnect) until the session ends, the user opens the app, or a
+     * video or mirroring starts.
+     */
+    @Volatile var inBackground = false
+
+    /** TV remote → iPhone player (DACP), from the Now Playing screen only (not in the background). */
+    enum class Remote { PLAY_PAUSE, PLAY, PAUSE, NEXT, PREVIOUS }
+
+    fun remote(command: Remote): Boolean {
+        if (!dacp.connected) return false // also from "Connected": OK starts the paused song
+        when (command) {
+            Remote.PLAY_PAUSE -> dacp.playPause()
+            Remote.PLAY -> dacp.play()
+            Remote.PAUSE -> dacp.pause()
+            Remote.NEXT -> dacp.next()
+            Remote.PREVIOUS -> dacp.previous()
+        }
+        return true
+    }
+
     /** "Stop & disconnect" from the TV: drop the iPhone, which falls back to its own speaker. */
     fun disconnect() {
         Log.i(TAG, "Disconnecting the AirPlay client")
+        inBackground = false
+        soundStarted = false
         worker.post { NativeBridge.nativeDisconnect() }
         MirrorController.stop()
         audio.stop()
@@ -251,7 +320,7 @@ class AirPlayService : Service(), NativeBridge.Listener {
     override fun client(name: String, model: String) {
         NowPlaying.setConnected(name)
         // Show who connected straight away, unless a video is already on screen.
-        main.post { if (VideoController.target == null) show(NowPlayingActivity::class.java, null) }
+        main.post { if (VideoController.target == null && !inBackground) show(NowPlayingActivity::class.java, null) }
     }
 
     override fun showPin(pin: String) {
@@ -280,6 +349,8 @@ class AirPlayService : Service(), NativeBridge.Listener {
     private fun connectionsChanged(delta: Int) {
         openConnections = maxOf(0, openConnections + delta)
         if (openConnections == 0) {
+            inBackground = false
+            soundStarted = false
             MirrorController.stop()
             audio.stop()
             abandonFocus()
@@ -293,6 +364,8 @@ class AirPlayService : Service(), NativeBridge.Listener {
     }
 
     private fun openVideo(url: String, startSeconds: Float) {
+        inBackground = false
+        soundStarted = false
         audio.stop()
         NowPlaying.clear()
         show(VideoActivity::class.java) {
@@ -308,7 +381,10 @@ class AirPlayService : Service(), NativeBridge.Listener {
     override fun mirrorFormat(h265: Boolean, sourceWidth: Int, sourceHeight: Int, width: Int, height: Int) {
         val starting = !MirrorController.active
         MirrorController.format(h265, width, height)
-        if (starting) main.post { show(MirrorActivity::class.java, null) }
+        if (starting) main.post {
+            inBackground = false
+            show(MirrorActivity::class.java, null)
+        }
     }
 
     override fun mirrorFrame(data: ByteArray, ptsUs: Long) = MirrorController.frame(data, ptsUs)
@@ -383,7 +459,7 @@ class AirPlayService : Service(), NativeBridge.Listener {
          * advertiser refuses a second service with the same instance name (the TV's remote-control
          * service already uses it), even of a different type.
          */
-        fun airPlayName(context: Context) = deviceName(context) + " AirPlay"
+        fun airPlayName(context: Context) = deviceName(context) + " AirStage"
 
         fun deviceName(context: Context): String =
             Settings.Global.getString(context.contentResolver, "device_name")?.takeIf { it.isNotBlank() }

@@ -1,14 +1,20 @@
-# airplay-tv
+# AirStage
 
-**Version 2.0** (versionCode 2). See [Changes](#changes) for what is new.
+AirStage (repository `airplay-tv`).
+
+**Version 3.0** (versionCode 3). See [Changes](#changes) for what is new.
 
 An open-source AirPlay receiver for Android TV / Google TV sticks. It makes the stick show up in an
 iPhone's AirPlay menu for:
 
 - **Music**: audio from the iOS Music app (other apps' AirPlay audio takes the same path but was not
   tested), lossless ALAC, with a
-  full-screen **Now Playing** screen: cover art over a blurred copy of it, "iPhone → TV" header,
-  title / artist / album (long names scroll) and track progress.
+  full-screen **Now Playing** screen: the cover with a "phone · · · TV" header above it (the dots
+  pulse while playing), over a slowly drifting blurred copy of the cover; an editorial serif title,
+  widely spaced artist and album, and a hairline progress bar, all coloured from the cover's main
+  colour (picked by vividness × area, lightened for readability); and, when available,
+  **time-synced lyrics** (press ▼ / ▲) that glide to the current line with a colour fade, without
+  moving the title or the bar.
 - **YouTube app video**: the YouTube app hands the stream over to the TV, which plays it itself
   (full screen, ExoPlayer). Pause, play and seek from the iPhone work, and the iPhone's scrubber
   follows the TV.
@@ -21,6 +27,14 @@ iPhone's AirPlay menu for:
 - **Plays nicely with the TV**: Back on the Now Playing screen offers *Continue in background* or
   *Stop & disconnect*. In the background, when another app starts playing on the TV, AirPlay goes
   quiet and the iPhone is paused (over DACP); pressing play on the iPhone takes the TV back.
+- **TV remote controls the iPhone**: on the Now Playing screen, OK / play-pause pauses and resumes
+  the iPhone, ◀ ▶ go to the previous / next track (over DACP). On YouTube video, OK pauses and ◀ ▶
+  skip 10 s; the iPhone follows. The remote only does this while the AirPlay screen is open, never
+  in the background. Reopening the app during playback goes straight back to Now Playing.
+- **Lyrics**: AirPlay does not carry lyrics, so they are looked up on [LRCLIB](https://lrclib.net)
+  (open, no account) by title, artist, album and length, and shown line by line with the music.
+- **Refresh on network**: a button on the start screen re-announces the receiver, for when the TV
+  has dropped out of the iPhone's AirPlay list.
 - **In sync with the iPhone**: audio is played at the time the iPhone stamps on each packet, so the
   TV's sound and progress bar match the Music app (and its lyrics), and stop together on pause.
 
@@ -53,7 +67,11 @@ This project replaces UxPlay's GStreamer renderers and DNS-SD backend with Andro
 | `VideoActivity.kt`, `VideoController.kt` | Full-screen video and iPhone remote control |
 | `MirrorActivity.kt`, `MirrorController.kt` | Screen mirroring (Photos): H.264 → MediaCodec → surface |
 | `PairedDevices.kt` | Devices that entered the PIN once |
-| `DacpRemote.kt` | Sends "pause" back to the iPhone when other TV media starts |
+| `Lyrics.kt` | Synced lyrics lookup on LRCLIB and LRC parsing |
+| `ConnectionHeader.kt` | The "phone · · · TV" header with pulsing dots |
+| `LyricsView.kt` | Scrolling, colour-fading lyrics display |
+| `Net.kt` | Shared HTTP client (IPv4 first) for video and lyrics |
+| `DacpRemote.kt` | Sends play/pause, next and previous to the iPhone (remote keys, other TV media) |
 
 ## Build
 
@@ -91,11 +109,11 @@ adb shell appops set dev.airplaytv SYSTEM_ALERT_WINDOW allow
 adb shell am start -n dev.airplaytv/.MainActivity
 ```
 
-The receiver is announced as **"<TV name> AirPlay"** (e.g. "Living Room TV AirPlay"): Android 14's mDNS
+The receiver is announced as **"<TV name> AirStage"** (e.g. "Living Room TV AirStage"): Android 14's mDNS
 advertiser refuses a second service with the bare TV name, which the TV's remote-control service
 already uses.
 
-**VPN apps:** if the TV runs a VPN (e.g. Surfshark), exclude "AirPlay Receiver" from it (Surfshark:
+**VPN apps:** if the TV runs a VPN (e.g. Surfshark), exclude "AirStage" from it (Surfshark:
 *Bypasser*). YouTube's stream URLs are tied to the iPhone's public IP, so the TV must fetch them from
 the same home connection; through a VPN, video never starts. Audio is unaffected (it stays on the
 local network).
@@ -122,6 +140,15 @@ Protocol logs: `adb shell setprop debug.airplaytv.verbose 1`, restart the app, `
   internet time): UxPlay's NTP clock exchange with the iPhone does not complete on this setup. If a
   clock is badly off, audio falls back to playing as it arrives.
 - Mirroring sound and picture are each played as they arrive (no lip-sync correction).
+- **No "explicit" (E) badge.** AirPlay does not send the content rating, and Apple's public
+  catalogue disagrees with the Music app for some songs, so a badge would sometimes be wrong.
+- **Lyrics are not Apple's.** Apple Music's lyrics are licensed and only reachable with an Apple
+  developer token plus the user's Apple Music login, so they are not used. LRCLIB is community
+  maintained: some songs, especially regional ones, have no lyrics there, and the TV needs internet
+  (bypass any VPN for the app).
+- The TV's elapsed/remaining time can differ from the iPhone's by about a second, varying from one
+  session to the next: the iPhone never sends its exact on-screen time, only positions that are
+  1–2 s off from what is being heard, so the TV shows the audio it actually plays.
 
 ## Licence
 
@@ -130,6 +157,23 @@ including playfair GPL-3.0 and llhttp MIT), libplist 2.7 (LGPL-2.1), Apple ALAC 
 OpenSSL 3.0 (Apache-2.0) is built locally by `scripts/build-openssl-android.sh` and linked statically.
 
 ## Changes
+
+**3.0**
+- Renamed to **AirStage** (display name and the AirPlay menu name, "<TV name> AirStage"; the package
+  id `dev.airplaytv` is unchanged, so pairings and settings carry over).
+- TV remote → iPhone player on the Now Playing screen: play/pause, previous/next track (DACP; the
+  iPhone's address is found once per session, so key presses are instant). "Paused" and
+  "Next/Previous track" shown on screen.
+- YouTube video: OK to pause/play, ◀ ▶ to skip 10 s.
+- The remote never controls the iPhone in the background.
+- Opening the app during AirPlay goes to Now Playing (or mirroring), not the start screen.
+- Progress bar resumes from the audio itself after a pause; remaining time rounded like the iPhone.
+- Time-synced lyrics from LRCLIB on the Now Playing screen (▼ show, ▲ hide; remembered).
+- New "phone · · · TV" header with pulsing dots, above the cover (also on the video loading screen).
+- Now Playing redesign: fixed layout (title and progress never move), smooth lyric transitions,
+  editorial serif title, colours taken from each song's album art (title, artist, bar, sung lyric
+  line), no shadow under the cover, drifting blurred background.
+- "Refresh on network" button on the start screen.
 
 **2.0**
 - PIN pairing: new devices enter a 4-digit code shown on the TV once; settings to turn it off and

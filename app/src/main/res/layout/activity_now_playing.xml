@@ -2,9 +2,10 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#FF000000">
+    android:background="#FF000000"
+    android:clipChildren="true">
 
-    <!-- The cover art again, blurred and darkened, filling the screen. -->
+    <!-- The cover art again, blurred and darkened, filling the screen; it drifts slowly. -->
     <ImageView
         android:id="@+id/backdrop"
         android:layout_width="match_parent"
@@ -25,67 +26,107 @@
         android:paddingStart="112dp"
         android:paddingEnd="112dp">
 
-        <ImageView
-            android:id="@+id/cover"
+        <!-- Left: who is playing, above the cover. The spacer below matches the header so the
+             cover stays centred on screen. -->
+        <LinearLayout
             android:layout_width="340dp"
-            android:layout_height="340dp"
-            android:background="@drawable/cover_frame"
-            android:elevation="24dp"
-            android:importantForAccessibility="no"
-            android:scaleType="centerCrop" />
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
 
+            <dev.airplaytv.ConnectionHeader
+                android:id="@+id/source"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/header_height"
+                android:layout_marginBottom="@dimen/header_gap" />
+
+            <ImageView
+                android:id="@+id/cover"
+                android:layout_width="340dp"
+                android:layout_height="340dp"
+                android:background="@drawable/cover_frame"
+                android:importantForAccessibility="no"
+                android:scaleType="centerCrop" />
+
+            <Space
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/header_height"
+                android:layout_marginTop="@dimen/header_gap" />
+        </LinearLayout>
+
+        <!-- Right: as tall as the cover. Title on top and progress at the bottom never move;
+             the middle shows artist/album or the lyrics. -->
         <LinearLayout
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="340dp"
             android:layout_marginStart="64dp"
             android:layout_weight="1"
             android:orientation="vertical">
 
             <dev.airplaytv.ScrollingTextView
-                android:id="@+id/source"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:drawableStart="@drawable/ic_airplay"
-                android:drawablePadding="10dp"
-                android:fontFamily="sans-serif-medium"
-                android:gravity="center_vertical"
-                android:letterSpacing="0.06"
-                android:textColor="#B3FFFFFF"
-                android:textSize="15sp" />
-
-            <dev.airplaytv.ScrollingTextView
                 android:id="@+id/title"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
-                android:fontFamily="sans-serif-medium"
-                android:textColor="#FFFFFFFF"
-                android:textSize="34sp" />
+                android:fontFamily="serif"
+                android:textColor="@color/ivory"
+                android:textSize="32sp"/>
 
-            <dev.airplaytv.ScrollingTextView
-                android:id="@+id/artist"
+            <FrameLayout
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:textColor="#E6FFFFFF"
-                android:textSize="22sp" />
+                android:layout_height="0dp"
+                android:layout_weight="1">
 
-            <dev.airplaytv.ScrollingTextView
-                android:id="@+id/album"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textColor="#99FFFFFF"
-                android:textSize="18sp" />
+                <LinearLayout
+                    android:id="@+id/info"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <dev.airplaytv.ScrollingTextView
+                        android:id="@+id/artist"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:letterSpacing="0.12"
+                        android:textColor="@color/ivory_soft"
+                        android:textSize="19sp" />
+
+                    <dev.airplaytv.ScrollingTextView
+                        android:id="@+id/album"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:textColor="#99FFFFFF"
+                        android:textSize="18sp" />
+
+                    <TextView
+                        android:id="@+id/lyrics_hint"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="14dp"
+                        android:text="@string/lyrics_hint"
+                        android:textColor="#9938BDF8"
+                        android:textSize="14sp"
+                        android:visibility="gone" />
+                </LinearLayout>
+
+                <dev.airplaytv.LyricsView
+                    android:id="@+id/lyrics"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:layout_marginTop="12dp"
+                    android:layout_marginBottom="12dp"
+                    android:visibility="gone" />
+            </FrameLayout>
 
             <ProgressBar
                 android:id="@+id/progress"
                 style="@android:style/Widget.Material.ProgressBar.Horizontal"
                 android:layout_width="match_parent"
-                android:layout_height="6dp"
-                android:layout_marginTop="44dp"
+                android:layout_height="3dp"
                 android:max="1000"
-                android:progressDrawable="@drawable/progress" />
+                android:progressBackgroundTint="#40FBF3E6"
+                android:progressDrawable="@drawable/progress"
+                android:progressTint="@color/ivory" />
 
             <FrameLayout
                 android:layout_width="match_parent"
@@ -101,14 +142,25 @@
                     android:textSize="16sp" />
 
                 <TextView
+                    android:id="@+id/remote_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal"
+                    android:fontFamily="sans-serif-medium"
+                    android:letterSpacing="0.08"
+                    android:textAllCaps="true"
+                    android:textColor="#E6FFFFFF"
+                    android:textSize="15sp" />
+
+                <TextView
                     android:id="@+id/remaining"
                     android:layout_width="120dp"
                     android:layout_height="wrap_content"
                     android:layout_gravity="end"
                     android:fontFeatureSettings="tnum"
+                    android:gravity="end"
                     android:textColor="#B3FFFFFF"
-                    android:textSize="16sp"
-                    android:gravity="end" />
+                    android:textSize="16sp" />
             </FrameLayout>
         </LinearLayout>
     </LinearLayout>

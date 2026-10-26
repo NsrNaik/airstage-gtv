@@ -23,6 +23,7 @@ object NowPlaying {
     private var positionMs = 0L
     private var positionAt = 0L
     private var startRtp = -1L
+    @Volatile private var pausedAt = 0L
 
     /** How far ahead of playback the sender streams (~1.8 s); its progress reports are that far ahead. */
     @Volatile var senderLeadMs = 0L
@@ -30,7 +31,7 @@ object NowPlaying {
     // The RTP timestamp of the packet being heard, and when (System.nanoTime), from the audio writer.
     @Volatile private var heardRtp = -1L
     @Volatile private var heardAtNanos = 0L
-    var paused = false
+    @Volatile var paused = false
         private set
     /** Name of the sending device, e.g. "Alex's iPhone". */
     var clientName = ""
@@ -41,12 +42,13 @@ object NowPlaying {
     /** PIN to show while a new device pairs, else null. */
     var pin: String? = null
         private set
-    /** True while an AirPlay audio session is open. */
-    var active = false
+    /** True once AirPlay sound is playing in this session (not merely set up). */
+    @Volatile var active = false
         private set
 
     private val main = Handler(Looper.getMainLooper())
     private const val PIN_TIMEOUT_MS = 120_000L
+    private const val RESUME_GRACE_MS = 400L
     private val observers = mutableListOf<() -> Unit>()
 
     fun observe(o: () -> Unit) { observers += o }
@@ -56,6 +58,11 @@ object NowPlaying {
     fun heard(rtpTime: Long, atNanos: Long) {
         heardRtp = rtpTime
         heardAtNanos = atNanos
+        // Audio is being played again after a pause: the iPhone resumed (it does not always send a
+        // progress report first). Ignore stragglers in the first moments after the pause.
+        if (paused && rtpTime >= 0 && SystemClock.uptimeMillis() - pausedAt > RESUME_GRACE_MS) {
+            post { if (paused) setPausedNow(false) }
+        }
     }
 
     /**
@@ -104,11 +111,15 @@ object NowPlaying {
         }
     }
 
-    fun setPaused(p: Boolean) = post {
+    fun setPaused(p: Boolean) = post { setPausedNow(p) }
+
+    /** Main thread. */
+    private fun setPausedNow(p: Boolean) {
         if (p && !paused) {
             // Freeze at what was last heard, then forget it: the flushed audio is never played.
             positionMs = positionMs()
             heardRtp = -1
+            pausedAt = SystemClock.uptimeMillis()
         }
         positionAt = SystemClock.elapsedRealtime()
         paused = p
