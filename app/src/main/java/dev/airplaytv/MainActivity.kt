@@ -72,8 +72,10 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Before the receiver starts, so a demo's TV name is the one it announces.
+        val demo = Demo.startIfRequested(this, intent)
         AirPlayService.start(this)
-        if (Demo.startIfRequested(this, intent)) return finish()
+        if (demo) return finish()
         val d = resources.displayMetrics.density
         val title = TextView(this).apply {
             text = getString(R.string.app_name)

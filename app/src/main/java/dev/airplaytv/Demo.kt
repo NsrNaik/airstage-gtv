@@ -15,7 +15,8 @@ import android.graphics.Shader
  * Screenshot mode, in debug builds only: fills the screens with an original demo track (cover drawn
  * here, lyrics written for it, neutral device names) so screenshots contain no copyrighted art or
  * personal names. Start it with
- *   adb shell am start -n dev.airplaytv/.MainActivity --es demo lyrics|music|connected|pin
+ *   adb shell am start -n dev.airplaytv/.MainActivity --es demo lyrics|music|connected|pin|home
+ * ("home" keeps the start screen, with the neutral TV name; force-stop the app first.)
  */
 object Demo {
 
@@ -41,11 +42,15 @@ object Demo {
         "Every street begins to sing",
     )
 
-    /** Returns true if [intent] asked for a demo and this is a debug build; then shows it. */
+    /**
+     * Returns true if [intent] asked for a Now Playing demo and this is a debug build; then shows it.
+     * The "home" demo only sets the TV name and returns false, so the start screen stays.
+     */
     fun startIfRequested(context: Context, intent: Intent?): Boolean {
         val mode = intent?.getStringExtra("demo") ?: return false
         if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return false
         tvName = "Living Room TV"
+        if (mode == "home") return false
         when (mode) {
             "pin" -> NowPlaying.setPin("4821")
             "connected" -> NowPlaying.setConnected(CLIENT)

@@ -138,7 +138,7 @@ Debug builds have a demo mode with an original track, cover and lyrics, so scree
 copyrighted art or personal names:
 
 ```bash
-adb shell am start -n dev.airplaytv/.MainActivity --es demo lyrics   # or music, connected, pin
+adb shell am start -n dev.airplaytv/.MainActivity --es demo lyrics   # or music, connected, pin, home (force-stop first)
 ```
 
 ### Wallpaper (optional, not in git)
@@ -154,6 +154,18 @@ before building and it is used; without it those screens are plain black. The pa
 `.gitignore`, so the image is never committed. The TV draws its interface at 1920×1080; a
 3840×2160 (16:9) image is fine and is decoded once, in the background, at reduced colour depth to
 save memory. Images of another shape are centre-cropped to fill the screen.
+
+For a ready-made one, copy [`docs/wallpaper-example.jpg`](docs/wallpaper-example.jpg): an
+original soft-gradient image (3840×2160, made for this project, free to use). With it the screens
+look like this; the left side is darkened automatically so the text stays readable:
+
+| Start screen | Connected, waiting |
+|---|---|
+| ![Start screen with the example wallpaper](docs/screenshots/wallpaper-home.png) | ![Connected screen with the example wallpaper](docs/screenshots/wallpaper-connected.png) |
+
+```
+cp docs/wallpaper-example.jpg app/src/main/assets/wallpaper.jpg
+```
 
 ## Install with a computer (ADB)
 
