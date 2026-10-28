@@ -9,7 +9,6 @@ import android.view.Gravity
 import android.view.View
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.TextView
 import kotlin.math.PI
 import kotlin.math.cos
 
@@ -60,11 +59,51 @@ class ConnectionHeader @JvmOverloads constructor(
 
     private fun icon(res: Int) = ImageView(context).apply { setImageResource(res) }
 
-    private fun label() = TextView(context).apply {
+    private fun label() = ScrollingTextView(context).apply {
         textSize = 16f
         setTextColor(0xD9FFFFFF.toInt())
-        maxLines = 1
-        isSingleLine = true
+    }
+
+    /**
+     * Names keep their natural width when they fit. When they don't (long device names), they share
+     * the space that is left (the shorter one keeps its width) and scroll to show the rest.
+     */
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val available = MeasureSpec.getSize(widthMeasureSpec)
+        val names = listOf(clientName, tvName).filter { it.visibility == View.VISIBLE }
+        val fixed = (0 until childCount).map { getChildAt(it) }.filter { it.visibility == View.VISIBLE }
+            .sumOf { v ->
+                val lp = v.layoutParams as LayoutParams
+                lp.marginStart + lp.marginEnd + if (v in names) 0 else lp.width.coerceAtLeast(0)
+            }
+        val budget = (available - fixed).coerceAtLeast(0)
+        // Shrink the text a little (down to 13 sp) before resorting to scrolling.
+        var size = MAX_SP
+        fun naturalAt(sp: Float) = names.map {
+            it.paint.textSize = sp * resources.displayMetrics.scaledDensity
+            it.paint.measureText(it.text.toString()).toInt() + 2
+        }
+        var natural = naturalAt(size)
+        while (natural.sum() > budget && size > MIN_SP && MeasureSpec.getMode(widthMeasureSpec) != MeasureSpec.UNSPECIFIED) {
+            size -= 0.5f
+            natural = naturalAt(size)
+        }
+        names.forEach { if (it.textSize != size * resources.displayMetrics.scaledDensity) it.textSize = size }
+        val widths = if (MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED || natural.sum() <= budget) {
+            natural
+        } else {
+            val half = budget / names.size
+            val small = natural.minOrNull() ?: 0
+            // The shorter name keeps its width if it is under half; the longer one gets the rest.
+            natural.map { if (it == small && small <= half) small else (budget - (if (small <= half) small else half) * (names.size - 1)).coerceAtLeast(0) }
+        }
+        names.forEachIndexed { i, v -> (v.layoutParams as LayoutParams).width = widths[i] }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+
+    companion object {
+        private const val MAX_SP = 16f
+        private const val MIN_SP = 13f
     }
 
     /** Three dots; while live a brightness wave runs phone → TV, driven by the clock. */

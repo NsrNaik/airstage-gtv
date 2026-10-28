@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- App icon: sky-blue AirPlay mark on a black rounded square. -->
+<!-- App icon: sky-blue AirStage mark on a black rounded square. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
         <shape>
@@ -8,6 +8,6 @@
             <size android:width="48dp" android:height="48dp" />
         </shape>
     </item>
-    <item android:drawable="@drawable/ic_airplay_sky" android:gravity="center"
+    <item android:drawable="@drawable/ic_airstage_sky" android:gravity="center"
         android:width="32dp" android:height="32dp" />
 </layer-list>

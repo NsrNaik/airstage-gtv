@@ -1,11 +1,53 @@
-# AirStage
+<p align="center"><img src="docs/logo.svg" width="96" alt="AirStage logo"></p>
 
-**AirPlay receiver for Google TV** (repository `airstage-gtv`).
+<h1 align="center">AirStage</h1>
 
-**Version 3.0** (versionCode 3). See [Changes](#changes) for what is new.
+<p align="center"><b>AirPlay receiver for Google TV</b>: free, open source, no subscription.</p>
 
-An open-source AirPlay receiver for Android TV / Google TV sticks. It makes the stick show up in an
-iPhone's AirPlay menu for:
+<p align="center">
+  <a href="https://github.com/NsrNaik/airstage-gtv/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/NsrNaik/airstage-gtv?label=download"></a>
+  <img alt="Android TV / Google TV" src="https://img.shields.io/badge/Android%20TV-Google%20TV-38BDF8">
+  <a href="LICENSE"><img alt="GPL-3.0" src="https://img.shields.io/github/license/NsrNaik/airstage-gtv"></a>
+</p>
+
+<p align="center"><img src="docs/demo.gif" width="720" alt="AirStage Now Playing with synced lyrics"></p>
+
+AirStage makes a Google TV / Android TV stick show up in your iPhone's AirPlay menu, like an Apple TV:
+play music from the Music app with a full-screen Now Playing screen and **synced lyrics**, send
+**YouTube** videos, and show **Photos** on the big screen. **Version 3.1.**
+
+**Highlights**
+- 🎵 **Music** in lossless ALAC, perfectly in step with the iPhone (pause, seek, lyrics)
+- 🖼️ **Now Playing** screen with the album art, colours taken from each cover, and time-synced lyrics
+- 🎮 **TV remote controls the iPhone**: play/pause, next and previous track
+- ▶️ **YouTube** videos play on the TV in full quality, controlled from the iPhone
+- 📷 **Photos and Screen Mirroring**
+- 🔒 **PIN pairing** once per device, and it pauses itself when something else plays on the TV
+
+| Now Playing | Synced lyrics |
+|---|---|
+| ![Now Playing](docs/screenshots/music.png) | ![Lyrics](docs/screenshots/lyrics.png) |
+| **Connected, waiting for music** | **First-time PIN pairing** |
+| ![Connected](docs/screenshots/connected.png) | ![PIN](docs/screenshots/pin.png) |
+
+<sub>Screenshots use AirStage's built-in demo track; no real album art or lyrics.</sub>
+
+## Install on your TV (no computer needed)
+
+1. On the TV, install **Downloader** (by AFTVnews) from the Google Play Store.
+2. Allow it to install apps: **Settings → Apps → Security & restrictions → Unknown sources →
+   Downloader** (on some TVs: Settings → Device Preferences → Security & restrictions).
+3. Open Downloader and enter this address:
+   `https://github.com/NsrNaik/airstage-gtv/releases/latest/download/AirStage.apk`
+4. Install it and open **AirStage**. Press **Allow pop-up screens** and switch on
+   *Display over other apps* for AirStage, so Now Playing and videos can open by themselves.
+5. On your iPhone: Music → AirPlay → **"&lt;your TV's name&gt; AirStage"**. The first time, enter the
+   4-digit code shown on the TV.
+
+The name in the AirPlay menu is your TV's device name (Settings → System → About → Device name)
+plus "AirStage". After renaming the TV, press **Refresh on network** in AirStage.
+
+## Features
 
 - **Music**: audio from the iOS Music app (other apps' AirPlay audio takes the same path but was not
   tested), lossless ALAC, with a
@@ -83,6 +125,22 @@ scripts/build-openssl-android.sh      # once: static libcrypto for both ABIs int
 ./gradlew assembleRelease             # app/build/outputs/apk/release/app-release.apk
 ```
 
+### Release signing (optional)
+
+`./gradlew assembleRelease` signs with the debug key unless a git-ignored `keystore.properties`
+(`storeFile`, `storePassword`, `keyAlias`, `keyPassword`) points to a release key. Official releases
+are signed with the project's own key: an APK you build yourself installs only after uninstalling a
+release build (and vice versa).
+
+### Screenshots / demo mode
+
+Debug builds have a demo mode with an original track, cover and lyrics, so screenshots contain no
+copyrighted art or personal names:
+
+```bash
+adb shell am start -n dev.airplaytv/.MainActivity --es demo lyrics   # or music, connected, pin
+```
+
 ### Wallpaper (optional, not in git)
 
 The start screen and the "Connected — waiting…" / PIN screens can show a background image. No image
@@ -97,14 +155,14 @@ before building and it is used; without it those screens are plain black. The pa
 3840×2160 (16:9) image is fine and is decoded once, in the background, at reduced colour depth to
 save memory. Images of another shape are centre-cropped to fill the screen.
 
-## Install
+## Install with a computer (ADB)
 
 Turn on developer options and USB debugging on the TV, then:
 
 ```bash
 adb connect <tv-ip>:5555
-adb install -r app/build/outputs/apk/release/app-release.apk
-# lets the background service bring the Now Playing / video screens to the front:
+adb install -r AirStage.apk     # from Releases, or app/build/outputs/apk/release/app-release.apk
+# only if the TV has no "Display over other apps" setting for the in-app button:
 adb shell appops set dev.airplaytv SYSTEM_ALERT_WINDOW allow
 adb shell am start -n dev.airplaytv/.MainActivity
 ```
@@ -164,6 +222,14 @@ including playfair GPL-3.0 and llhttp MIT), libplist 2.7 (LGPL-2.1), Apple ALAC 
 OpenSSL 3.0 (Apache-2.0) is built locally by `scripts/build-openssl-android.sh` and linked statically.
 
 ## Changes
+
+**3.1**
+- Own AirStage icon (a stage with sound waves) instead of an AirPlay-like symbol.
+- "Allow pop-up screens" button: grants the permission on the TV itself, no ADB needed.
+- Install guide without a computer (Downloader app); signed release APK on GitHub Releases.
+- Header names shrink to fit long device names, and scroll only if still too long.
+- Waiting and PIN screens: shorter, plain texts; larger logo.
+- Debug-only demo mode for screenshots.
 
 **3.0**
 - Renamed to **AirStage** (display name and the AirPlay menu name, "<TV name> AirStage"; the package

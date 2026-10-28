@@ -31,6 +31,13 @@ object Lyrics {
     var lines: List<Line>? = null
         private set
 
+    /** Debug builds only ([Demo]): use these lines for [t] instead of looking it up. */
+    internal fun demo(t: NowPlaying.Track, durationMs: Long, demoLines: List<Line>) {
+        track = t
+        trackDurationMs = durationMs
+        lines = demoLines
+    }
+
     /** Looks the track up once; [onReady] runs on the main thread when lines are known. Main thread. */
     fun request(t: NowPlaying.Track, durationMs: Long, onReady: () -> Unit) {
         if (t.title.isEmpty()) return

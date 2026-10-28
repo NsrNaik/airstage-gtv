@@ -155,7 +155,7 @@ class LyricsView @JvmOverloads constructor(
     companion object {
         private const val TRANSITION_MS = 260L
         /** Where the sung line sits, as a fraction of the view's height. */
-        private const val ANCHOR = 0.32f
+        private const val ANCHOR = 0.42f
         private const val DIM_ALPHA = 150f
         /** Height, as a fraction of the view, over which lines fade at the top and bottom. */
         private const val EDGE_FADE = 0.16f

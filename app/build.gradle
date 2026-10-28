@@ -12,8 +12,8 @@ android {
         applicationId 'dev.airplaytv'
         minSdk 24
         targetSdk 34
-        versionCode 3
-        versionName '3.0'
+        versionCode 4
+        versionName '3.1'
         ndk {
             // Cheap Google TV sticks often run a 32-bit userland on a 64-bit CPU.
             abiFilters 'armeabi-v7a', 'arm64-v8a'
@@ -32,11 +32,26 @@ android {
         }
     }
 
+    // Release signing: keystore.properties (git-ignored, never committed) points to the key. Without
+    // it, release builds are signed with the debug key so anyone can still build and install.
+    def keystoreFile = rootProject.file('keystore.properties')
+    signingConfigs {
+        if (keystoreFile.exists()) {
+            def props = new Properties()
+            keystoreFile.withInputStream { props.load(it) }
+            release {
+                storeFile file(props['storeFile'])
+                storePassword props['storePassword']
+                keyAlias props['keyAlias']
+                keyPassword props['keyPassword']
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
-            // Sideloaded over ADB, never published: sign with the debug key.
-            signingConfig signingConfigs.debug
+            signingConfig keystoreFile.exists() ? signingConfigs.release : signingConfigs.debug
         }
     }
 

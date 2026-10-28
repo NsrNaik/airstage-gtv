@@ -100,7 +100,7 @@ class AirPlayService : Service(), NativeBridge.Listener {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "AirPlay receiver", NotificationManager.IMPORTANCE_LOW))
         val notification = Notification.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_airplay)
+            .setSmallIcon(R.drawable.ic_airstage)
             .setContentTitle(getString(R.string.app_name))
             .setContentText("Waiting for AirPlay as \"${airPlayName(this)}\"")
             .setOngoing(true)
@@ -462,7 +462,7 @@ class AirPlayService : Service(), NativeBridge.Listener {
         fun airPlayName(context: Context) = deviceName(context) + " AirStage"
 
         fun deviceName(context: Context): String =
-            Settings.Global.getString(context.contentResolver, "device_name")?.takeIf { it.isNotBlank() }
+            Demo.tvName ?: Settings.Global.getString(context.contentResolver, "device_name")?.takeIf { it.isNotBlank() }
                 ?: Build.MODEL
     }
 }

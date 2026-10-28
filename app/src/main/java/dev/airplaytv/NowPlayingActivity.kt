@@ -118,9 +118,10 @@ class NowPlayingActivity : Activity() {
         NowPlaying.pin?.let { pin ->
             source.set("", tv)
             setIfChanged(title, pin.toCharArray().joinToString("  "))
+            artist.letterSpacing = PLAIN_SPACING // a sentence, not a name: no wide spacing
             setIfChanged(artist, getString(R.string.pin_hint))
             setIfChanged(album, getString(R.string.pin_once))
-            showCover(null, R.drawable.ic_airplay)
+            showCover(null, R.drawable.ic_airstage)
             showWallpaper()
             hideLyrics()
             renderProgress()
@@ -128,15 +129,17 @@ class NowPlayingActivity : Activity() {
         }
         if (!NowPlaying.active) {
             setIfChanged(title, getString(R.string.connected_title))
+            artist.letterSpacing = PLAIN_SPACING
             setIfChanged(artist, getString(R.string.waiting_for_media) + animatedEllipsis())
             setIfChanged(album, getString(R.string.waiting_hint))
-            showCover(null, R.drawable.ic_airplay)
+            showCover(null, R.drawable.ic_airstage)
             showWallpaper()
             hideLyrics()
             renderProgress()
             return
         }
         val t = NowPlaying.track
+        artist.letterSpacing = ARTIST_SPACING
         setIfChanged(title, t.title.ifEmpty { getString(R.string.waiting_title) })
         setIfChanged(artist, t.artist)
         setIfChanged(album, t.album)
@@ -152,11 +155,15 @@ class NowPlayingActivity : Activity() {
         shownPlaceholder = placeholder
         if (bmp != null) {
             cover.setImageBitmap(bmp)
+            cover.setPadding(0, 0, 0, 0)
             cover.scaleType = ImageView.ScaleType.CENTER_CROP
             backdrop.setImageBitmap(blur(bmp))
         } else {
             cover.setImageResource(placeholder)
-            cover.scaleType = ImageView.ScaleType.CENTER
+            // The logo / note, large but with room around it, in the empty cover frame.
+            val pad = (resources.displayMetrics.density * 110).toInt()
+            cover.setPadding(pad, pad, pad, pad)
+            cover.scaleType = ImageView.ScaleType.FIT_CENTER
             backdrop.setImageDrawable(null)
         }
         applyColors(bmp)
@@ -353,6 +360,9 @@ class NowPlayingActivity : Activity() {
     companion object {
         /** Warm ivory: the colour scheme when there is no usable album colour. */
         private const val IVORY = 0xFFFBF3E6.toInt()
+        /** Wide spacing for artist names (editorial style); plain for the waiting/PIN sentences. */
+        private const val ARTIST_SPACING = 0.12f
+        private const val PLAIN_SPACING = 0.01f
     }
 
     /**

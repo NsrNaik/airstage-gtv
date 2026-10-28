@@ -91,6 +91,23 @@ object NowPlaying {
         post { track = t }
     }
 
+    /** Debug builds only ([Demo]): a fake playing track, for screenshots. */
+    internal fun demo(t: Track, art: Bitmap, lengthMs: Long, atMs: Long, client: String) = post {
+        clientName = client
+        connected = true
+        active = true
+        paused = false
+        pin = null
+        track = t
+        cover = art
+        durationMs = lengthMs
+        positionMs = atMs
+        positionAt = SystemClock.elapsedRealtime()
+        startRtp = -1
+        heardRtp = -1
+        senderLeadMs = 0
+    }
+
     fun setCover(jpeg: ByteArray) {
         val bmp = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: return
         post { cover = bmp }

@@ -9,3 +9,7 @@ local.properties
 third_party/openssl/
 # Optional wallpaper for the start/waiting screens: add your own, never commit it (see README)
 app/src/main/assets/wallpaper.jpg
+
+# Release signing (kept outside the repo, never committed)
+keystore.properties
+*.jks
